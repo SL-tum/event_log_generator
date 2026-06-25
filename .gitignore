@@ -12,6 +12,7 @@ venv/
 .env
 .env.*
 !.env.example
+data/models/
 
 # OS/editor files
 .DS_Store
