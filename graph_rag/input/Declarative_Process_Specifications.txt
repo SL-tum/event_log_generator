@@ -1,0 +1,776 @@
+<!-- image -->
+
+## Declarative Process Specifications: Reasoning, Discovery, Monitoring
+
+Claudio Di Ciccio 1( B ) and Marco Montali 2
+
+1 Sapienza University of Rome, Rome, Italy
+
+claudio.diciccio@uniroma1.it
+
+2 Free University of Bozen-Bolzano, Bolzano, Italy
+
+montali@inf.unibz.it
+
+Abstract. The declarative specification of business processes is based upon the elicitation of behavioural rules that constrain the legal executions of the process. The carry-out of the process is up to the actors, who can vary the execution dynamics as long as they do not violate the constraints imposed by the declarative model. The constraints specify the conditions that require, permit or forbid the execution of activities, possibly depending on the occurrence (or absence) of other ones. In this chapter, we review the main techniques for process mining using declarative process specifications, which we call declarative process mining . In particular, we focus on three fundamental tasks of (1) reasoning on declarative process specifications, which is in turn instrumental to their (2) discovery from event logs and their (3) monitoring against running process executions to promptly detect violations. We ground our review on Declare, one of the most widely studied declarative process specification languages. Thanks to the fact that Declare can be formalized using temporal logics over finite traces, we exploit the automata-theoretic characterization of such logics as the core, unified algorithmic basis to tackle reasoning, discovery, and monitoring. We conclude the chapter with a discussion on recent advancements in declarative process mining, considering in particular multi-perspective extensions of the original approach.
+
+## 1 Introduction
+
+Finding a suitable balance between flexibility and control is a long-standing problem in the management of work processes [83]. Among the different approaches striving to achieve this balance, fl exibility by design suggests to infuse flexibility in the process modeling language at hand. Declarative process modeling languages take this to the extreme: they support the specification of what are the relevant constraints on the temporal evolution of the process, without explicitly indicating how process instances should be routed to satisfy such constraints. In comparison with imperative approaches that produce 'closed' representations (i.e., only those process executions explicitly foreseen in the model are allowed), declarative approaches yield 'open' representations (i.e., every process execution is implicitly allowed, as long as it does not incur in the violation of some constraint).
+
+Fig. 1. Intuitive representation of the difference between imperative process models and declarative process specifications in the space of all execution traces. Diagram (a) represents a real process, which isolates the allowed (green, solid fill) behaviors from the forbidden (red, dotted fill) ones. Diagram (b) shows an imperative process model that stays within the boundaries of the process, but misses many allowed behaviors. Diagram (c) shows a declarative process specification that well approximates the boundaries of the process: it accepts only traces that are allowed by the process, and includes all the traces accepted by the imperative model in (b). (Color figure online)
+
+<!-- image -->
+
+Figure 1 depicts an intuitive representation of the difference between classical imperative process models and declarative process specifications, considering execution traces that are forbidden by the real process, allowed by the real process, and captured by the designed process specification. Imperative models (such as those based on Petri nets and related formalisms) are suited to explicitly capture control-flow patterns like sequences, choices, concurrent sections, and loops. Those patterns, in turn, lend themselves to characterize a subset of the allowed traces, but struggle in covering the whole space of execution paths in the case of loosely structured, flexible processes. In other words, they favor control over flexibility. Contrariwise, declarative specifications strive to balance flexibility and control by attempting to characterize constraints that well-separate the allowed behaviors from the forbidden ones. In other words, declarative process specifications allow us to capture not only what is expected to occur, but also what should not happen . This helps in better approximating the boundaries of the real process, containing (and extending) those captured via imperative process models.
+
+The idea of adopting a constraint-based, declarative approach to regulate dynamic systems has been originally brought forward in different communities: in data management, to express cascaded transactional updates [26]; in multiagent systems, to regulate agent interaction protocols [88]; and in business process management, to capture subprocesses that foresee loosely-coupled control-flow conditions on their activities [85]. This idea was further developed within BPM in consequent years, leading to a series of declarative, constraint-based process modeling languages, with two prominent exponents: Declare [76] and Dynamic Condition-Response Graphs [49]. Common to all such approaches is the usage of linear temporal/dynamic logics (i.e., temporal/dynamic logics for sequences of events) to formally describe specifications, and the exploitation of corresponding reasoning mechanisms to tackle a variety of concrete tasks along the entire process lifecycle, from design and model analysis to runtime execution and data analysis.
+
+In this chapter, we focus on declarative process mining , that is, process mining where the input or output models are specified using declarative, constraintbased languages. Concretely, we employ the Declare language, but all the presented ideas seamlessly apply any language that can be formalized using logics over fi nite traces [30], which are indeed at the core of Declare . Focusing on finite traces reflects the intuition that every process instance is expected to complete in a finite number of steps. This aspect has a significant impact on the corresponding operational techniques, as these logics admit an automatatheoretic characterization that is based on standard fi nite-state automata [27,30], instead of automata on infinite structures, which are needed when such logics are interpreted over infinite traces.
+
+Leveraging automata-based techniques paired with suitable measures relating traces, events and constraints, we review three interconnected fundamental declarative process mining tasks:
+
+- Reasoning - to uncover relationships among different constraints, and check key properties of Declare specifications;
+- Discovery - to extract a Declare specification that suitably characterizes the traces contain in an event log;
+- Monitoring - to provide operational decision support [63] by checking at runtime whether a running process execution satisfies a Declare specification, promptly detecting and reporting violations.
+
+All the presented techniques are integrated in the MINERful process discovery technique 1 [40] and the RuM toolkit 2 [4].
+
+The chapter is organized as follows. Section 2 introduces the declarative process specification language Declare alongside a running example to which we will refer throughout the remainder of the chapter. Section 3 provides the fundamental notions upon which the core techniques for reasoning, discovery and monitoring on declarative specifications are based. We define the formal semantics of Declare and discuss the core reasoning tasks for declarative specifications in Sect. 4. Section 5 explains the core notions of declarative process discovery and monitoring. Section 6 discusses the latest advances in the field of declarative process specification mining. Finally, Sect. 7 concludes this chapter with final remarks and a summary of the core concepts illustrated herein.
+
+[1 https://github.com/cdc08x/MINERful.](https://github.com/cdc08x/MINERful)
+
+[2 https://rulemining.org.](https://rulemining.org/)
+
+Table 1. A set of Declare constraints among those that are typically used for process mining, with their textual description, graphical notation, and examples fulfilling or violating them.
+
+<!-- image -->
+
+| Constraint                    | Explanation                                                                                                                    | Examples                               | Examples                                      | Notation   |
+|-------------------------------|--------------------------------------------------------------------------------------------------------------------------------|----------------------------------------|-----------------------------------------------|------------|
+| Existence constraints         |                                                                                                                                |                                        |                                               |            |
+| Init ( a )                    | a is the first to occur /check 〈 a , c , c 〉                                                                                 | /check 〈 a , b , a , c 〉             | ×〈 c , c 〉 ×〈 b , a , c 〉                 | a Init     |
+| AtLeastOne ( a )              | a occurs at least once /check 〈 b , c , a , c 〉                                                                              | /check 〈 b , c , a , a , c 〉         | ×〈 b , c , c 〉 ×〈 c 〉                     | a 1 .. ∗   |
+| AtMostOne ( a )               | a occurs at most once /check 〈 b , c , c 〉                                                                                   | /check 〈 b , c , a , c 〉             | ×〈 b , c , a , a , c 〉 ×〈 b , c , a ,      | a 0 .. 1   |
+| End ( a )                     | a is the last to occur /check 〈 b , c , a 〉                                                                                  | /check 〈 b , a , c , a 〉             | ×〈 b , c 〉 ×〈 b , a , c 〉                 | a End      |
+| Relation constraints          |                                                                                                                                |                                        |                                               |            |
+| RespondedExistence ( a , b )  | If a occurs in the trace, then b occurs as well /check 〈 b , c , a , a , c 〉                                                 | /check 〈 b , c , c 〉                 | ×〈 c , a , a , c 〉 ×〈 a , c , c 〉         | a b        |
+| Response ( a , b )            | If a occurs, then b occurs after a /check 〈 c , a , a , c , b 〉                                                              | /check 〈 b , c , c 〉                 | ×〈 c , a , a , c 〉 ×〈 b , a , c ,          | a b        |
+| AlternateResponse ( a , b )   | Each time a occurs, then b occurs after- wards, and no other a recurs in between /check 〈 c , a , c , b 〉                    | /check 〈 a , b , c , a , c , b 〉     | ×〈 c , a , a , c , b 〉 ×〈 b , a , c ,      | a b        |
+| ChainResponse ( a , b )       | Each time a occurs, then b occurs imme- diately afterwards /check 〈 c , a , b , b 〉                                          | /check 〈 a , b , c , a , b 〉         | ×〈 c , a , c , b 〉 ×〈 b , c , a 〉         | a b        |
+| Precedence ( a , b )          | b occurs only if pre- ceded by a /check 〈 c , a , c , b , b 〉                                                                | /check 〈 a , c , c 〉                 | ×〈 c , c , b , b 〉 ×〈 b , a , c ,          | a b        |
+| AlternatePrecedence ( a , b   | Each time b occurs, it is preceded by a and no other b can recur in between /check 〈 c , a , c , b , a 〉                     | /check 〈 a , b , c , a , a , c , b 〉 | ×〈 c , a , c , b , b , a 〉 ×〈 a , b , b ,  | a b        |
+| ChainPrecedence ( a , b )     | Each time b occurs, then a occurs imme- diately beforehand /check 〈 a , b , c , a 〉                                          | /check 〈 a , b , a , a , b , c 〉     | ×〈 b , c , a 〉 ×〈 b , a , a ,              | a b        |
+| Mutual relation constraints   |                                                                                                                                |                                        |                                               |            |
+| CoExistence ( a , b )         | If b occurs, then a occurs, and vice versa /check 〈 c , a , c , b , b 〉                                                      | /check 〈 b , c , c , a 〉             | ×〈 c , a , c 〉 ×〈 b , c , c 〉             | a b        |
+| Succession ( a , b )          | a occurs if and only if it is followed by b /check 〈 c , a , c , b , b 〉                                                     | /check 〈 a , c , c , b 〉             | ×〈 b , a , c 〉 ×〈 b , c , c ,              | a b        |
+| AlternateSuccession ( a , b ) | a and b if and only if the latter follows the former, and they alternate each other in the trace /check 〈 c , a , c , b , a , | /check 〈 a , b , c , a , b , c 〉     | ×〈 c , a , a , c , b , b 〉 ×〈 b , a , c 〉 | a b        |
+| ChainSuccession ( a , b )     | a and b occur if and only if the latter immediately follows the former /check 〈 c , a , b , a , b 〉                          | /check 〈 c , c , c 〉                 | ×〈 c , a , c , b 〉 ×〈 c , b , a ,          | a b        |
+| Negative relation constraints |                                                                                                                                |                                        |                                               |            |
+| NotCoExistence ( a , b )      | a and b never occur together /check 〈 c , c , c , b , b ,                                                                     | /check 〈 c , c , a , c 〉             | ×〈 a , c , c , b , b 〉 ×〈 b , c , a ,      | a b        |
+| NotSuccession ( a , b )       | b cannot occur after a /check 〈 b , b , c , a , a 〉                                                                          | /check 〈 c , b , b , c , a 〉         | ×〈 a , a , c , b , b 〉 ×〈 a , b , b 〉     | a b        |
+| NotChainSuccession ( a , b )  | a and b cannot occur contiguously /check 〈 a , c , b , a , c ,                                                                | /check 〈 b , b , a , a 〉             | ×〈 a , b , c , a , b 〉 ×〈 c , a , b ,      | a b        |
+
+## 2 D ECLARE : A Gentle Introduction
+
+Declare is a language and graphical notation providing an extendible repertoire of templates to formulate constraints. The origin of the approach traces back to the PhD work by Pesic [75], and the parallel and consequent study in the PhD work by Montali [67]. Notably, Declare actually stems from three initial lines of research, respectively focused on the declarative specification of business processes (cf. the ConDec language [78]), service choreographies (cf. the DecSerFlow language [70,94]), and clinical guidelines (cf. the CigDec language [72]). These lines were then unified into a single research thread. The term Declare was used for the first time in [76].
+
+Table 1 shows a set of Declare constraints we use throughout this chapter. The whole, core set of Declare templates has been inspired by a catalogue of temporal logic patterns used in model checking for a variety of dynamic systems from different application domains [41].
+
+Formally, we define a declarative process specification as follows.
+
+Definition 1 (Declarative process specification). A declarative process specification is a tuple DS = ( Rep , Act , K ) where
+
+- Rep is a finite non-empty set of templates , where each template is a predicate k ( x 1 , . . . , x m ) ∈ Rep on variables x 1 , . . . , x m (with m ∈ N the arity of k ),
+- K is a finite set of constraints , namely pairs ( k ( x 1 , . . . , x m ) , κ ) where k ( x 1 , . . . , x m ) is a template from Rep , and κ is a mapping that, for every i ∈ { 1 , . . . , m } assigns variable x i with an activity κ ( x i ) = a i ∈ Act ; we compactly denote such a constraint with k ( a 1 , . . . , a m ) . /triangleleft
+- Act is a finite non-empty set of activities ,
+
+Example 1 (A Declare process specification). Figure 2 portrays an example of declarative specification for the admission process of an international Bachelor's program. This example considers the Declare repertoire of templates. The process begins with the creation of an account in the university portal (henceforth, c ). To specify that c is the initial task, we write Init ( c ) , graphically depicted with the Init label in the tag on top of the activity box. Init is a unary template and Init ( c ) assigns its variable with activity c . Unary templates in Declare are also known as existence templates. We indicate that not more than one account can be created per process run with AtMostOne ( c ) . In the diagram, it is indicated with the 0 .. 1 label in the tag.
+
+To register for a selection round ( r ), an account must have been created before ( Precedence ( c , r ) ). Precedence is a binary template and Precedence ( c , r ) , graphically depicted as c r , assigns c and r to its first and second variable, respectively. Binary templates in Declare are commonly named as relation templates.
+
+Every registration to a selection round ( r ) gives access to a uniquely corresponding evaluation phase ( v ). After r , v eventually follows and no other registrations are allowed until v completes. We write AlternateResponse ( r , v ) , graphically depicted as r v . The evaluation requires r to be completed before and v will not recur unless a new registration is issued: AlternatePrecedence ( r , v ) , r v . Typically, if both AlternateResponse ( r , v ) and AlternatePrecedence ( r , v ) hold true, we compactly represent them jointly with the mutual relation constraint AlternateSuccession ( r , v ) r v . An admission test score has to be uploaded in the platform to access the evaluation phase: Precedence ( t , v ) . Evaluation phases are necessary for the committee to return rejections ( n ) and notifications of admission ( y ), thus AlternatePrecedence ( v , y ) and AlternatePrecedence ( v , n ) hold.
+
+<!-- image -->
+
+Fig. 2. The Declare map of the admission process at a university.
+
+<!-- image -->
+
+After the admission has been notified, the candidate will not receive a rejection any longer NotResponse ( y , n ) , drawn in Fig. 2 as y n . NotResponse ( y , n ) falls under the category of the negative relation constraints, as the occurrence of y disables n in the remainder of the process execution.
+
+Only if candidates receive a notification of admission, they will be entitled to pre-enrol in the program ( Precedence ( y , p ) ). The candidates are considered as pre-enrolled immediately after they pay the subscription fee ( ChainResponse ( $ , p ) , shown as follows in the diagram: $ p ). Also, candidates cannot be considered as pre-enrolled if they have not paid the subscription fee: Precedence ( $ , p ) . Not more than one pre-enrolment is allowed per candidate: AtMostOne ( p ) . To enrol in the program ( e ), the candidate must have pre-enrolled Precedence ( p , e ) - and uploaded the necessary school and language certificates Precedence ( u , e ) .
+
+So far, we have been attaching an informal semantics to Declare and its templates. In the next section, we provide a more systematic and formal characterization.
+
+## 3 Formal Background
+
+Considering that Declare templates have been originally defined starting from a catalogue of Linear Temporal Logic (LTL) patterns [41], it is not surprising that temporal logics have been used to characterize the semantics of Declare since the very beginning. However, the fact that Declare specifications are interpreted over finite-length executions calls for the use of Linear Temporal Logic on Finite Traces ( LTL f ) [30]. This indeed leads to a setting that is radically different, both semantically and algorithmically, from the traditional one where formulae are interpreted using LTL over infinite, recurring behaviors [29].
+
+A complete formalization of Declare templates, also including an alternative formalization using a logic programming-based approach, can be found in [68]. It was later refined in [29]. In his PhD thesis, Di Ciccio was the first to provide a semantics based on regular expressions [36]. These two themes were later unified in [28], leading to a richer framework that is able to declaratively capture constraints and metaconstraints, that is, constraints predicating over the possible/certain satisfaction and violation of other constraints.
+
+In this section, we provide some necessary background on LTL f and its extension with past-tense temporal operators, as well as on the automata-theoretic characterization for this logic. We then use this framework to formalize Declare and reason automatically on Declare specifications. Thereupon, we reflect upon the most recent advances of research in attempting at capturing not only the formal semantics of constraints, but also how they pragmatically interact with relevant events.
+
+## 3.1 Linear Temporal Logic on Finite Traces
+
+LTL f has the same syntax of LTL [80], but is interpreted on finite traces. In this chapter, in particular, we consider the LTL dialect including past modalities [56] for declarative process specifications as in [18].
+
+From now on, we fix a finite set Σ representing an alphabet of propositional symbols describing (names of) activities available in the domain under study. A (finite) trace t = 〈 a 1 , . . . , a n 〉 ∈ Σ of length | t | = n is a finite sequence of activities, where the presence of activity a i at instant i of the trace represents an event that witnesses the occurrence of a i at instant i - which we also write t ( i ) = a i . Notice that at each instant we assume that one and only one activity occurs . Using standard notation from regular expressions, the set Σ ∗ denotes the overall set of traces whose constitutive events refer to activities in Σ .
+
+Definition 2 (Syntax of LTL f ). Well-formed formulae are built from Σ , the unary temporal operators © (next) and /circleminus (yesterday), and the binary temporal operators U (until) and S (since) as follows:
+
+<!-- formula-not-decoded -->
+
+where a ∈ Σ .
+
+/triangleleft
+
+Definition 3 (Semantics of LTL f , satisfaction, validity, entailment). An LTL f formula ϕ is inductively satisfied in some instant i ( 1 ≤ i ≤ n ) of a trace t of length n ∈ N , written t, i /satisfies ϕ , if the following holds:
+
+- t, i /satisfies a iff t ( i ) is assigned with a ;
+- t, i /satisfies ϕ 1 ∧ ϕ 2 iff t, i /satisfies ϕ 1 and t, i /satisfies ϕ 2 ;
+- t, i /satisfies ¬ ϕ iff t, i /notsatisfies ϕ ;
+- t, i /satisfies © ϕ iff i &lt; n and t, i +1 /satisfies ϕ ;
+
+- t, i /satisfies /circleminus ϕ iff i &gt; 1 and t, i -1 /satisfies ϕ ;
+- t, i /satisfies ϕ 1 S ϕ 2 iff t, j /satisfies ϕ 2 with 1 ≤ j ≤ i , and t, k /satisfies ϕ 1 for all k s.t. j &lt; k ≤ i .
+- t, i /satisfies ϕ 1 U ϕ 2 iff t, j /satisfies ϕ 2 with i ≤ j ≤ n , and t, k /satisfies ϕ 1 for all k s.t. i ≤ k &lt; j ;
+
+A formula ϕ is satisfied by a trace t (equivalently, t satisfies ϕ ), written t /satisfies ϕ , iff t, 1 /satisfies ϕ . A formula ϕ is: (i) satisfiable if it has a satisfying trace from Σ ∗ ; (ii) valid if every trace in Σ ∗ satisfies it. A formula ϕ 1 entails formula ϕ 2 , written ϕ 1 | = ϕ 2 , if, for every trace t of length n ∈ N and every i s.t. 1 ≤ i ≤ n , if t, i | = ϕ then t, i | = ψ . /triangleleft
+
+Since LTL f is closed under negation, it is easy to see that a formula ϕ is valid if and only if ¬ ϕ is unsatisfiable.
+
+It is worth noting that, in LTL f , the next operator is interpreted as the socalled strong next: © ϕ requires that the next instant exists within the trace, and that at such next instant ϕ holds. This has an important consequence: differently from LTL , in LTL f formula ¬© ϕ is not equivalent to ©¬ ϕ . This is because ¬© ϕ is true in an instant of a finite trace either when that instant has no successor, or the next instant exists and in such a next instant ϕ does not hold. More on this can be found in [29].
+
+From the basic operators above, the following can be derived:
+
+- Classical boolean abbreviations true , false , ∨ , → ;
+- Constant start ≡ ¬/circleminus true , denoting the first instant of a trace;
+- Constant end ≡ ¬© true , denoting the last instant of a trace;
+- ♦ ϕ ≡ true U ϕ indicating that ϕ eventually holds true in the trace (hence, before or at end );
+- ϕ 1 W ϕ 2 ≡ ( ϕ 1 U ϕ 2 ) ∨ /square ϕ 1 , which relaxes U as ϕ 2 may never hold true;
+- ♦ ϕ ≡ true S ϕ indicating that ϕ holds true at some instant before the current one (i.e., after start in the trace);
+- /square ϕ ≡ ¬ ♦ ¬ ϕ indicating that ϕ holds true from the current instant till end ;
+- /squareminus ϕ ≡ ¬ ♦ ¬ ϕ indicating that ϕ holds true from start to the current instant.
+
+Example 2. Let t = 〈 a, b, b, c, d, e 〉 be a trace and ϕ 1 , ϕ 2 and ϕ 3 three LTL f formulae defined as follows: ϕ 1 . = d ; ϕ 2 . = ♦ b ; ϕ 3 . = /square ( b → ♦ d ) . We have that t, 1 /notsatisfies ϕ 1 whereas t, 5 /satisfies ϕ 1 ; t, 1 /satisfies ϕ 2 whereas t, 5 /notsatisfies ϕ 2 ; t, 1 /satisfies ϕ 3 and t, 5 /satisfies ϕ 3 (in fact, t, i /satisfies ϕ 3 for any instant 1 ≤ i ≤ n ). /triangleleft
+
+## 3.2 Finite-State Automata
+
+One of the central features of LTL f is that a finite state automaton (FSA) [22] A ( ϕ ) can be computed such that for every trace t we have that t /satisfies ϕ iff t is in the language recognized by A ( ϕ ) , as illustrated in [18,28,30,38]. We include the main notions next, recalling that focusing on deterministic FSAs is without loss of generality, as over finite traces every non-deterministic FSAs can be determinized [50].
+
+Fig. 3. Examples of constraint FSAs.
+
+<!-- image -->
+
+Definition 4 (Finite state automaton (FSA)). A (deterministic) finite state automaton (FSA) is a tuple A = ( Σ,S,δ,s 0 , S F ) , where:
+
+- Σ is a finite set of symbols;
+- δ : S × Σ → S is the transition function , i.e., a partial function that, given a starting state and a (labeled) transition, returns the target state;
+- S is a finite non-empty set of states;
+- s 0 is the initial state;
+- S F ⊆ S is the set of final (accepting) states s F ∈ S F
+
+/triangleleft
+
+In the remainder of the chapter, we assume that δ is left-total and surjective on S \ { s 0 } , that is, the transition function is defined for every state and symbol, and every state is on a path from the initial one - with the possible exception of the initial state itself. An FSAs that is left-total is called untrimmed . Notice that these two requirements are without loss of generality: every FSA can be converted into an equivalent FSA that is left-total and surjective. In particular, to make an FSAs untrimmed, it is sufficient to: (i) introduce a non-final trap state s ⊥ ; (ii) for every state s and symbol a ′ such that δ ( s, a ′ ) is not defined, enforce δ ( s, a ′ ) = s ⊥ ; (iii) connect s ⊥ to itself for every symbol, setting δ ( s ⊥ , a ) = s ⊥ for every a ∈ Σ .
+
+Example 3. Figure 3 depicts four FSAs. States are represented as circles and transitions as arrows. Accepting states are decorated with a double line. The initial state is indicated with a single, unlabeled incoming arc. For instance, Fig. 3(a) is such that Σ ⊇ { σ 1 , σ 2 } , S = { s 0 , s 1 , s 2 } , S F = { s 0 } , δ ( s 0 , σ 1 ) = s 1 and δ ( s 1 , σ 1 ) = s 2 . /triangleleft
+
+Definition 5 (Runs and traces of an FSA). Let A = ( Σ,S,δ,s 0 , S F ) be an FSA as per Definition 4. A computation π of A is a finite sequence alternating states and activities s 0 σ 0 - → . . . σ n -1 - - - → s n that starts from the initial state s 0 is such that for every 0 ≤ i &lt; n , we have δ ( s i , σ i ) = s i +1 . If π terminates in a final state, that is, s n ∈ S F , then it is a run , and induces a corresponding trace σ 0 , . . . , σ n -1 over Σ ∗ obtained from π by only keeping the symbols that label the transitions. /triangleleft Example 4. In Fig. 3(a), π 1 = s 0 σ 1 - → s 1 , π 2 = s 0 σ 2 - → s 0 σ 1 - → s 1 σ 1 - → s 2 , and π 3 = s 0 σ 1 - → s 1 σ 2 - → s 2 σ 1 - → s 0 are three examples of computations. However, only π 3 is a run because s 0 ∈ S F whereas s 1 , s 2 / ∈ S F . Notice that, in Fig. 3, we additionally highlight with a grey background colour those states that cannot be in a step of a run - that is, from which accepting states cannot be reached (e.g., s 2 in Fig. 3(a)). /triangleleft Definition 6 (Accepted trace, language of an FSA). A trace t ∈ Σ ∗ is accepted by FSA A = ( Σ,S,δ,s 0 , s F ) if there is a run of A inducing t . The language L ( A ) of A is the set of traces accepted by A . /triangleleft Example 5. For the FSA in Fig. 3(a), the language contains the trace t 1 = 〈 σ 1 , σ 2 , σ 1 〉 , since a run exists over this sequence of labels (i.e., π 3 above), whereas t 2 = 〈 σ 2 , σ 1 〉 is not part of the language. /triangleleft Automata Product. FSAs are closed under the (synchronous) product operation × [81]. The (cross-)product A × A ′ of two FSAs A and A ′ is an FSA that accepts the intersection of languages (sets of accepted traces) of each operand: L ( A × A ′ ) = L ( A ) ⋂ L ( A ′ ) . It is defined as follows.
+
+Definition 7 (Automata product). The product FSA of two FSAs A = ( Σ,S,δ,s 0 , S F ) and A ′ = ( Σ,S ′ , δ ′ , s ′ 0 , S ′ F ) over the same alphabet Σ is the FSA A × A ′ = ( Σ,S × , δ × , s × 0 , S × F ) , where the set S × ⊆ S × S ′ of states (obtained from the cartesian product of the states in A and A ′ ), its initial state s × 0 , its final states S × F , and the transition function δ × , are defined by simultaneous induction as follows:
+
+- s × 0 = 〈 s 0 , s ′ 0 〉 ∈ S × ;
+- Nothing else is in S × F , S × , and δ × .
+- For every state 〈 s 1 , s ′ 1 〉 ∈ S × , state s 2 ∈ S , state s ′ 2 ∈ S ′ , and label /lscript ∈ Σ , if δ ( s 1 , /lscript ) = s 2 and δ ′ ( s ′ 1 , /lscript ) = s ′ 2 then: (i) 〈 s 2 , s ′ 2 〉 ∈ S × , (ii) δ × ( 〈 s 1 , s ′ 1 〉 , /lscript ) = 〈 s 2 , s ′ 2 〉 , (iii) if s 2 ∈ S F and s ′ 2 ∈ S ′ F , then 〈 s 2 , s ′ 2 〉 ∈ S × F .
+
+/triangleleft Notice that the FSA constructed with Definition 7 can be manipulated using language-preserving automata operations, such as in particular minimization [50].
+
+The product operation × is commutative and associative. The identity element for × over alphabet Σ is A I = ( Σ, { s 0 } , s 0 , { s 0 } × Σ ×{ s 0 } , { s 0 } ) -depicted in Fig. 4(a). It accepts all traces over Σ : L ( A I ) = P ( Σ ∗ ) as any sequence of transitions labeled by symbols in Σ corresponds to a run for A I . The absorbing element is A ∅ = ( Σ, { s 0 } , s 0 , { s 0 } × Σ ×{ s 0 } , ∅ ) and is illustrated in Fig. 4(b). It does not accept any trace at all: L ( A ∅ ) = ∅ as any sequence of transitions labeled by symbols in Σ corresponds to a computation ending in a non-accepting state.
+
+## 4 Reasoning
+
+Equipped with the notions acquired thus far, we can now discuss the core reasoning tasks that are associated to declarative process specifications. To this end, we begin this section by describing the semantics of Declare in detail.
+
+Fig. 4. Finite state automata acting as identity element and absorbing element for the automata cross-product operation.
+
+<!-- image -->
+
+ECLARE
+
+## 4.1 Semantics of D
+
+The semantics of a Declare template k ( x 1 , . . . , x m ) is given as an LTL f formula ϕ k ( x 1 ,...,x m ) defined over variables x 1 , . . . , x m instead of activities. Given the free variables x and y , e.g., Response ( x, y ) corresponds to /square ( x → ♦ y ) , witnessing that whenever x occurs, then y is expected to occur at some later instant. Table 2 shows the LTL f formulae of some templates of the Declare repertoire. The formalization of a constraint is then obtained by grounding the LTL f formula of its template.
+
+Definition 8 (Constraint formula, satisfying trace). The formula of constraint k ( a 1 , . . . , a m ) , written ϕ k ( a 1 ,...,a m ) , is the LTL f formula obtained from ϕ k ( x 1 ,...,x m ) by replacing x i with a i for each 1 ≤ i ≤ m . A trace t satisfies k ( a 1 , . . . , a m ) if t | = ϕ k ( a 1 ,...,a m ) ; otherwise, we say that t violates k ( a 1 , . . . , a m ) . /triangleleft
+
+Example 6. Considering Table 2, we have ϕ Response ( a , b ) = /square ( a → ♦ b ) , and ϕ Response ( b , c ) = /square ( b → ♦ c ) . Traces 〈 b 〉 and 〈 a , b , a , a , c , b 〉 satisfy Response ( a , b ) , while 〈 a 〉 and 〈 a , b , a , a , c 〉 do not. /triangleleft
+
+A Declare specification is then formalized by conjoining all its constraint formulae, thus obtaining a direct, declarative notion of model trace , that is, a trace that is accepted by the specification.
+
+Definition 9 (Specification formula, model trace). The formula of Declare specification DS = ( Rep , Act , K ) , written ϕ DS , is the LTL f formula ∧ k ∈ K ϕ k . A trace t ∈ Act ∗ is a model trace of DS if t | = ϕ DS ; in this case, we say that t is accepted by DS , otherwise that t is rejected by DS . /triangleleft
+
+Constructing constraint and specification formulae is, however, not enough. When one reads /square ( a → ♦ b ) following the textual description given above, the formula gets intepreted as 'whenever a occurs, then b is expected to occur at some later instant'. This formulation intuitively hints at the fact that the occurrence of a activates the Response ( a , b ) constraint, requiring the target b to occur. In turn, we get that a trace not containing any occurrence of a is less interesting than a trace containing occurrences of a , each followed by one or more occurrences of b : even though both traces satisfy Response ( a , b ) , the first trace never 'interacts'
+
+Table 2. Semantics of some Declare constraints.
+
+| Template                                                                                                                                                                  | LTL f expression [18,30]                                                                                                                                                              | Activation        | Target                                                                      |
+|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------|-----------------------------------------------------------------------------|
+| Existence constraints                                                                                                                                                     |                                                                                                                                                                                       |                   |                                                                             |
+| AtLeastOne ( x ) AtMostOne ( x ) Init ( x ) End ( x )                                                                                                                     | /square ( start → ♦ x ) /square ( x →¬© ♦ x ) /square ( start → x ) /square ( end → x )                                                                                               | start x start end | ♦ x ¬© ♦ x x x                                                              |
+| Relation constraints                                                                                                                                                      |                                                                                                                                                                                       |                   |                                                                             |
+| RespondedExistence ( x, y ) Response ( x, y ) AlternateResponse ( x, y ) ChainResponse ( x, y ) Precedence ( x, y ) AlternatePrecedence ( x, y ) ChainPrecedence ( x, y ) | /square ( x → ♦ y ∨ ♦ y ) /square ( x → ♦ y ) /square ( x →© ( ¬ x U y )) /square ( x →© y ) /square ( y → ♦ x ) /square ( y →/circleminus ( ¬ y S x )) /square ( y →/circleminus x ) | x x x x y y y     | ♦ y ∨ ♦ y ♦ y © ( ¬ x U y ) © y ♦ x /circleminus ( ¬ y S x ) /circleminus x |
+| Negative relation                                                                                                                                                         |                                                                                                                                                                                       |                   |                                                                             |
+| NotRespondedExistence ( x, y NotResponse ( x, y )                                                                                                                         |                                                                                                                                                                                       |                   |                                                                             |
+| constraints                                                                                                                                                               |                                                                                                                                                                                       |                   |                                                                             |
+| )                                                                                                                                                                         | /square ( x → ( /square ¬ y ∧ /squareminus ¬ y )) /square ( x → /square ¬ y )                                                                                                         | x x               | /square ¬ y ∧ /squareminus ¬ y /square ¬ y                                  |
+| NotChainResponse ( x, y ) NotPrecedence ( x, y ) NotChainPrecedence ( y,x )                                                                                               | /square ( x →¬© y ) /square ( y → /squareminus ¬ x ) /square ( y →¬/circleminus x )                                                                                                   | x y y             | ¬© y /squareminus ¬ x ¬/circleminus x                                       |
+
+with Response ( a , b ) , while the second does. This relates to the notion of vacuous satisfaction in LTL [51] and that of interestingness of satisfaction in LTL f [39].
+
+The point is, all such considerations are not captured by the formula /square ( a → ♦ b ) , but are related to pragmatic interpretation of how it relates to traces. To see this aspect, let us consider that we can equivalently express the formula above as /square ¬ a ∨ ♦ ( b ∧ /square ¬ a ) , which now reads as follows: 'Either a never happens at all, or there is some occurrence of b after which a never happens'. This equivalent reformulation does not put into evidence the activation or the target.
+
+This problem can be tackled in two possible ways. One option is to attempt at an automated approach where activation, target, and interesting satisfaction are semantically, implicitly characterized once and for all at the logical level; this is the route followed in [39]. The main drawback of this approach is that the user cannot intervene at all in deciding how to fine-tune the activation and target conditions. An alternative possibility is instead to ask the user to explicitly indicate, together with the LTL f formula ϕ of the template, also two related LTL f formulae expressing activation and target conditions for ϕ . This latter approach, implicitly adopted in [69] and then explicitly formalized in [18], gives more control to the user on how to pragmatically interpret constraints. We follow this latter approach.
+
+Intuitively, the activation of a constraint is a triggering condition that, once made true, expects that the target condition is satisfied by the process execution.
+
+Contrariwise, if the constraint is not activated, the satisfaction of the target is not enforced. All in all, to properly constitute an activation-target pair for an LTL f formula ϕ , we need them to satisfy the condition that whenever the current instant is such that the activation is satisfied, ϕ must behave equivalently to the target (thus requiring its satisfaction). This is formally captured as follows.
+
+Definition 10 (Activation and target of a constraint). The activation and target of a constraint k over activities Act are two LTL f formulae k and k such that for every trace t ∈ Act ∗ we have that:
+
+<!-- formula-not-decoded -->
+
+Table 2 shows activations and targets for each constraint, inspired by the work of Cecconi et al. [18]. In the next example, we explain the rationale behind some of the constraint formulations in the table.
+
+Example 7. Consider ChainResponse ( $ , p ) , dictating that whenever $ occurs, then p is the activity occurring next. We have ϕ ChainResponse ( $ , p ) = /square ( $ → © p ) . Then, by Definition 10, we can directly fix ChainResponse ( $ , p ) = $ , and ChainResponse ( $ , p ) = © p , respectively witnessing that every occurrence of $ triggers the constraint, with a target requiring the consequent execution of p in the next instant. Similarly, for Precedence ( $ , p ) we have ϕ Precedence ( $ , p ) = /square ( p → ♦ $ ) , and in turn, by Definition 10, ϕ Precedence ( $ , p ) = p and ϕ Precedence ( $ , p ) = ♦ $ . The case of AtMostOne ( p ) is also similar. In this case, ϕ AtMostOne ( p ) formalizes that p cannot occur twice, which in LTL f can be directly captured by ¬ ♦ ( p ∧ © ♦ p ) . This is logically equivalent to /square ( p → ¬© ♦ p ) , which directly yields AtMostOne ( p ) = p and AtMostOne ( p ) = ¬© ♦ p .
+
+A quite different situation holds instead for the other existence constraints. Take, for example, AtLeastOne ( a ) , requiring that a occurs at least once in the execution. This can be directly encoded in LTL f as ♦ a . This formulation, however, does not help to individuate the activation and target of the constraint. Intuitively, we may disambiguate this by capturing that since the constraint requires the presence of a from the very beginning of the execution, the constraint is indeed activated at the beginning, i.e., when start holds, imposing the satisfaction of the target ♦ a . This intuition is backed up by Definition 10, using the semantics of start and noticing the following logical equivalences:
+
+<!-- formula-not-decoded -->
+
+This explains why the latter formulation is employed in Table 2.
+
+/triangleleft
+
+Declarative Constraints as FSAs. Crucial for our techniques is that every LTL f formula ϕ can be encoded into a corresponding FSA (in the sense of Definition 4) A ϕ that recognizes all and only those traces that satisfy the formula. This can be done through different algorithmic techniques. A direct approach that transforms an input formula into a non-deterministic FSAs is presented in [28,29]; notice that the so-obtained FSAs can then be determinized and minimized using standard techniques [50,99]. A fortiori, given a Declare specification DS = ( Rep , Act , K ) , we proceed as follows:
+
+Fig. 5. Example FSAs of Declare constraints.
+
+<!-- image -->
+
+- We pair each constraint k ∈ K to a corresponding, so-called local automaton A k . This automaton is the FSA A ϕ k of the constraint formula ϕ k , and is used to characterize all and only those traces that satisfy k ;
+- We pair the whole specification to a so-called global automaton A DS , that is, the FSA A ϕ DS of the constraint formula ϕ DS . It thus recognizes all and only the model traces of DS . Recall that, as introduced in Definition 9, ϕ DS is the conjunction of the formulae of the constraints in K , and thus the language L ( A DS ) corresponds to ⋂ k ∈ K L ( A k ) . By definition of automata product, this means that L ( A DS ) can be obtained by computing the product of the local automata of the constraints in K .
+
+Figure 5 shows four local automata for constraints taken from our running example: AlternateResponse ( r , v ) , ChainResponse ( $ , p ) , Precedence ( u , e ) and AtMostOne ( p ) . Examples of global automata are instead given in Fig. 6.
+
+In the remainder of this chapter, we will extensively use local and global automata for reasoning, discovery, and monitoring. Though out of scope for this chapter, it is also worth mentioning that the automata-based approach has also been used for simulation of Declare models and thereby the production of event logs from declarative specifications [37], and also to define enactment engines for Declare specifications [76,97].
+
+## 4.2 Reasoning on D ECLARE Specifications
+
+Reasoning on a Declare specification is necessary to understand which model traces are supported and, in turn, to ascertain its correctness. Reasoning is also key to unveil how constraints interact with each other, and check whether activations and targets are properly defined. As we will see, this is instrumental not only to analyze specifications, but it is also an integral part of declarative process mining.
+
+In general, reasoning on declarative specifications is of particular importance: while they enjoy flexibility, they typically do not explicitly indicate how execu- tion has to be controlled. We have seen how this phenomenon concretely manifests itself in the context of Declare : traces conforming to the specification (that is, model traces ) are only implicitly described as those that satisfy all the given constraints. Constraints, in turn, may be quite diverse from each other (e.g., indicating what is expected to occur, but also what should not happen) and, even more importantly, may affect each other in subtle, difficult to detect ways. This phenomenon is known, in the literature that studies the cognitive impact of languages and notations, under the name of hidden dependencies [47]. Hidden dependencies in Declare have been studied in [32,70], and their impact on understandability and interpretability of declarative process models has spawned a dedicated line of research, started in [48].
+
+(c) Alt.Resp. ( r , v ), Chn.Resp. ( $ , p ), Prec. ( u , e ) and AtMostOne ( p ), where ¯ Σ is Σ \ { r , v , $ , p , u , e } (for the sake of readability, a few transitions to s 12 are omitted)-
+
+<!-- image -->
+
+Fig. 6. Global automata for the interplay of Declare constraints.
+
+We detail next key reasoning tasks in the context of Declare , substantiating how hidden dependencies enter into the picture. We show that all such reasoning tasks can be homogeneously tackled by a single check on the global automaton of the specification under study.
+
+Fig. 7. Examples of incorrect Declare specifications.
+
+<!-- image -->
+
+Specification Consistency. This is the most fundamental task, defined as follows.
+
+Definition 11 (Consistent specification). A Declare specification DS is consistent if there exists at least one model trace for DS . /triangleleft
+
+Example 8. Consider the Declare specification in Fig. 7(a). The specification is inconsistent. This is not due to conflicting constraints insisting on the same activity, but due to hidden dependencies arising from the interplay of multiple constraints. To see why the specification is inconsistent, we can try to construct a trace that satisfies some of the constraints in the model, until we reach a contradiction (i.e., the 'trace pattern' constructed so far violates a constraint of the specification). This is graphically shown next:
+
+<!-- image -->
+
+The picture clearly depicts that AtLeastOne ( a ) triggers:
+
+- on the one hand Precedence ( d , a ) , calling for a preceding occurrence of d ;
+- on the other hand, in cascade, Response ( a , b ) , Response ( b , c ) , and Response ( c , d ) , calling for a later occurrence of d .
+
+Considering the interplay of the involved constraints, d is required to occur in different instants, hence twice, in turn violating AtMostOne ( d ) . /triangleleft
+
+By definition of model trace, it is immediate to see that DS is consistent if and only if the LTL f specification formula ϕ DS is satisfiable . This, in turn, can be algorithmically verified by first constructing the global automaton A DS , and then checking whether such an automaton is empty (i.e., it does not recognize any trace). Specifically, ϕ DS is satisfiable if and only if A DS is non-empty .
+
+Detection of Dead Activities. This task amounts to check whether a Declare specification is over-constrained, in the sense that it contains an activity that can never be executed (in that case, such an activity is called dead ).
+
+Definition 12 (Dead activity). Let DS = ( Rep , Act , K ) be a Declare specification. An activity a ∈ Act is dead in DS if there is no model trace of DS where a occurs. /triangleleft
+
+Example 9. Consider the Declare specification in Fig. 7(b). The specification is consistent; as an example, trace 〈 c , d 〉 is a model trace. However, none of its model traces can foresee the execution of b . This can be seen if one tries to construct a trace containing an occurrence of b . The result is the following:
+
+<!-- image -->
+
+It is apparent that the presence of b requires a previous occurrence of a and, indirectly, a future occurrence of d , violating NotResponse ( a , d ) . This shows that b is a dead activity.
+
+Consider now the specification in Fig. 7(c). The situation here is trickier. The specification is consistent, as it accepts the empty trace (where no activity is executed, and hence none of the two response constraints present in the specification gets activated). However, none of the two activities a and b present therein can occur. As soon as this happens, the combination of the two response constraints cannot be fi nitely satisfied. In fact, an occurrence of a requires a later occurrence of b , which in turn requires a later occurrence of a , and so on and so forth, indefinitely. In other words, in every instant, one between Response ( a , b ) and Response ( b , a ) must be active and waiting for a later occurrence of its target, in a future instant. Since every instant must have a next instant, it is not possible to construct a satisfying (finite) trace. /triangleleft
+
+Dead activity detection can be directly reduced to (in)consistency of a specification. Specifically, activity a is dead in a Declare specification DS = ( Rep , Act , K ) if and only if the specification ( Rep , Act , K ∪{ AtLeastOne ( a ) } ) , obtained from DS by forcing the existence of a is inconsistent (i.e., its specification formula is not satisfiable).
+
+Valid Activation and Target. To ensure that a Declare constraint k comes with a valid activation k and target k for its formula ϕ k , we can directly apply Definition 10 and check whether the LTL f formula ϕ k ↔ /square ( k → k ) is valid, that is, whether its negation is not satisfiable.
+
+Checking Relations Between Constraints/Specifications. We establish two key relations between constraints/specifications. The first is that of subsumption between templates, leveraging the entailment relation between LTL f formulae to constraints. We formally define it as follows.
+
+Definition 13 (Subsumption). Let k ( x 1 , . . . , x m ) , k ′ ( x 1 , . . . , x m ) ∈ Rep two templates. k ( x 1 , . . . , x m ) subsumes k ′ ( x 1 , . . . , x m ) (in symbols, k ( x 1 , . . . , x m ) /subsetsqequal k ′ ( x 1 , . . . , x m ) ) if, given any mapping κ assigning x 1 , . . . , x m with activities a 1 , . . . , a m ∈ Act , ϕ k ( a 1 ,...,a m ) | = ϕ k ′ ( a 1 ,...,a m ) . /triangleleft
+
+This relation can be checked by verifying that ϕ k ( a 1 ,...,a m ) → ϕ k ′ ( a 1 ,...,a m ) is valid, that is, the negated formula ϕ k ( a 1 ,...,a m ) ∧¬ ϕ k ′ ( a 1 ,...,a m ) is not satisfiable for any a 1 , . . . , a m ∈ Act . For example, Alt.Prec. ( x, y ) /subsetsqequal Precedence ( x, y ) as the former requires that y can occur only if preceded by x (just as the latter) and y does not recur in between. Therefore, every event that satisfies the former must satisfy the latter too. In the following, we shall lift this notion to constraints too (e.g., we say that AlternatePrecedence ( y , p ) subsumes Precedence ( y , p ) ).
+
+By Definition 8 and Definition 9, since both Declare constraints and specifications correspond to LTL f formulae, we can use subsumption for a twofold purpose:
+
+- Consider two candidate constraints k 1 and k 2 . If k 1 /subsetsqequal k 2 , then we know that adding k 1 to a Declare specification will make the addition of k 2 irrelevant, and that adding k 1 or k 2 will determine whether the specification is more or less constraining.
+- Consider a candidate constraint k and a target specification DS . If the former logically entails the latter, ϕ DS | = ϕ k , then k is redundant in DS , and it makes no sense to include it in DS .
+
+The second relation characterizes constraints that are the negated version of each other. Let k 1 and k 2 be two Declare constraints, coming with activation formulae k 1 and k 2 and target formulae k 1 and k 2 , respectively. We say that k 1 and k 2 are the negated versions of one another if their activations are logically equivalent, that is k 1 ↔ k 2 , and their targets are incompatible, that is, k 1 ∧ k 2 is false. An example is that of Response vs NotResponse .
+
+Consider now the situation where a decision must be taken concerning which of two candidate constraints k 1 and k 2 can be added to a Declare specification. Knowing that k 1 and k 2 are the negated versions of one another indicates that they should not both be added to the specification, as including them both would make the specification inconsistent as soon as the two constraints are activated.
+
+As we will see in the next section, these notions become key when dealing with declarative process mining, and in particular the discovery of Declare specifications from event logs. Figure 8 graphically depicts how the main Declare constraint templates relate to each other in terms of subsumption and negated versions.
+
+Fig. 8. The subsumption map of Declare templates. Templates are indicated with solid boxes. The subsumption relation is depicted as a line starting from the subsumed template and ending in the subsuming one, with an empty triangular arrow recalling the UML IS-A graphical notation. The negative templates are graphically linked to the corresponding relation templates by means of wavy grey arcs.
+
+<!-- image -->
+
+## 5 Declarative Process Mining
+
+Declarative process constraints depict the interplay of every activity in the process with the rest of the activities. As a consequence, the behavioural relationships that hold among activities can be analysed with a local focus on each one [9], as a projection of the whole process behaviour on a single element thereof. The constraints pertaining to a single activity thus be seen as its footprint in the global behaviour of the process. We shall interchangeably interpret Declare constraints as (i) behavioural relations between activities in a process specification or (ii) rules exerted on the occurrence of events in traces. Notice that the latter is a different approach than the former, typically used for process modelling as originally conceived by the seminal work of Pesic et al. [77]. The former is instead the basis for declarative process mining. In the following, we describe how process specifications can be discovered and monitored.
+
+## 5.1 Declarative Process Discovery
+
+Declarative process discovery refers to the inference of those constraints that significantly rule the behaviour of a process, based upon an input event log. The problem can be framed in two distinct ways:
+
+- A discriminative discovery problem , reminiscent of a classification task. This requires to split the input event log in two partitions, one containing 'positive' examples and the second containing 'negative' examples. Discovery
+
+## Algorithm 1: Overview of the discovery algorithm
+
+/negationslash
+
+```
+Input: L ∈ B ( U ∗ act ) , the event log to be analyzed; Rep , a finite set of Declare templates to be considered to express the discovered specification; Act ⊆ U act , a finite set of activities to be included in the discovered specification; conf min t , supp min t , conf min e , supp min e , the minimum thresholds for trace-based confidence and support, and event-based confidence and support, respectively (default for all four parameters: 0 . 0 ); Output: DS , a declarative process specification 1 K ← { k ( a 1 , . . . , a m ) : k ∈ Rep , a 1 ; . . . , a m ∈ Act , a i = a j with 1 ≤ i, j ≤ m } /* candidate constraints: templates assigned with any pair of distinct activities */ 2 foreach k ∈ K /* compute measures */ 3 do 4 c t ← conf t ( k , L ) ; s e ← supp t ( k , L ) ; c e ← conf e ( k , L ) ; s e ← supp e ( k , L ) 5 if c t ≤ conf min t or s t ≤ supp min t or c e ≤ conf min e or s e ≤ supp min e then 6 K ← K \ { k } /* remove constraints with a measure below the threshold */ 7 foreach k ∈ K /* remove constraints as per subsumption hierarchy and negated v. */ 8 do 9 foreach k ′ ∈ K s.t. k ′ /subsetsqequal k /* for every k ′ that subsumes k in K */ 10 do 11 if allm ( k ′ , L ) ≤ allm( k , L ) /* if the measures of k ′ are ≤ those of k */ 12 then 13 K ← K \ { k } 14 else K ← K \ { k ′ } 15 foreach k ′ ∈ DS s.t. k ′ is the negated version of k do 16 if allm ( k ′ , L ) < allm( k , L ) then K ← K \ { k } 17 else K ← K \ { k ′ } 18 return DS = ( Rep , Act , K )
+```
+
+amounts to find a suitable Declare specification that correctly reconstructs the classification, that is, accepts all positive examples and reject all negative ones.
+
+- A standard discovery problem - also known as specification mining in the software engineering literature [53]. This calls for the individuation of which Declare constraints best describe the traces in the log, considering all of them as 'positive' examples.
+
+The first discovery algorithm for Declare treated discovery as a discriminative problem, exploiting inductive logic programming to tackle it [20,52]. In parallel, Goedertier et al. [46] brought forward techniques to generate negative examples from positive ones. Interestingly, this line of investigation recently received again the attention of the community [19,89].
+
+Declarative process discovery framed as a standard discovery problem finds its two main exponents in Declare Miner [58] and MINERful [40], which have been then extended with an arsenal of techniques to improve the quality and correctness of the discovered specifications. We follow the second thread, summarizing the main ideas exploited therein, though reshaping the core concepts in an attempt to embrace the wider plethora of declarative process discovery techniques and the advancements they brought [8,18,59].
+
+Process discovery in a declarative setting typically consists of the following phases:
+
+- 1) The initial setup, i.e., the selection of (i) the templates to be sought for, (ii) the activities to be considered for the candidate constraints instantiating those templates, and (iii) the minimum thresholds for constraint interestingness measures to retain a candidate constraint;
+
+- 2) The computation of interestingness measures for all the constraints that instantiate the given templates;
+- 3) The simplification of the returned specification, through (i) the removal of constraints whose measures do not reach the user-specified thresholds, (ii) the pruning of the redundant constraints from the set, and (iii) the removal of one constraint for every pair of constraints that are the negated version of one another.
+
+Algorithm 1 gives a bird-eye view of the approach in pseudocode. As we can observe, interestingness measures are crucial to determine the degree to which constraints are satisfied in the log. They have been introduced to indicate the level of reliability and relevance of constraints discovered from event logs, originally devised in the field of association rule mining [3] and adapted to the declarative process discovery context [17,65]. Among them, we recall support and confidence. Intuitively, support is a normalized measure quantifying how often the constraint is satisfied in the event log. Confidence considers the number of satisfactions with respect to the occurrences of the activations. We define them formally as follows.
+
+Definition 14 (Trace-based measures). Let L be a non-empty simplified event log with at least a non-empty trace, and k a declarative constraint as per Definition 1. We define the trace-based support supp t and the trace-based confidence conf t as follows:
+
+<!-- formula-not-decoded -->
+
+<!-- formula-not-decoded -->
+
+/triangleleft
+
+We remark that the condition at the numerator that the trace has to satisfy not only the constraint k but also eventually its activation, i.e., t | = ♦ ( k ) ∧ k , serves the purpose of avoiding to count 'vacuous satisfactions' discussed in Sect. 4.1. For example, while trace 〈 b , c 〉 satisfies ChainResponse ( a , b ) , it does so vacuously, in the sense that it never activates the constraint. This intuitively means that ChainResponse ( a , b ) , albeit satisfied, it cannot be interestingly used to describe the behaviour encoded in the trace. We recall that with L ( t ) denotes the multiplicity of occurrences of t in the log L (see [1], Sect 3.1). The max term at the denominator of the formulation of confidence serves the purpose of avoiding a division by zero in case no trace satisfies ♦ ( k ) .
+
+Declare Miner first introduced the trace-based measures to discover specifications from logs, counting traces that (non-vacuously) satisfy constraints as a whole. MINERful, instead, advocated also the adoption of measures that lie at the level of granularity of events. The similarities and differences between the two measuring schemes and the role of explicit activations and targets to tackle vacuity has been later systematized in [18]. The motivation behind the use of eventbased measures is the ability to give a differently weight to traces violating the constraints in more than one instant: with trace-based measures, e.g., both traces 〈 a , b , c , a , b , c , c , a , b , a , b , a , b , a , b , c , a , b , c , a , b , a , b , a , c 〉 and 〈 b , a , c , a , c , a , a , a , a , a , a , c 〉 would count as single violations for ChainResponse ( a , b ) . However, only the last occurrence of a out of ten leads to violation in the first trace, whereas all eight occurrences of a lead to violation in the second trace. Next, we formally capture the notion of event-based measures.
+
+Definition 15 (Event-based measures). Let L be a non-empty simplified event log with at least a non-empty trace, and k a declarative constraint as per Definition 1. We define the event-based support supp e and the event-based confidence conf e as follows:
+
+<!-- formula-not-decoded -->
+
+<!-- formula-not-decoded -->
+
+/triangleleft
+
+Again, the condition at the numerator that events satisfy both activation and target of the constraint is intended to avoid including vacuous satisfactions in the sum. The max term at the denominator of confidence is intended to avoid a division by zero in case no event satisfies k .
+
+For the sake of readability, we shall denote with allm( k , L ) the tuple containing all computed measures for a constraint k on the event log L : allm( k , L ) = (supp t ( k , L ) , conf t ( k , L ) , supp e ( k , L ) , conf e ( k , L )) . Given two constraints k 1 and k 2 , we write allm( k 1 , L ) ≤ allm( k 2 , L ) if supp t ( k 1 , L ) ≤ supp t ( k 2 , L ) , conf t ( k 1 , L ) ≤ conf t ( k 2 , L ) , supp e ( k 1 , L ) ≤ conf t ( k 2 , L ) , and conf e ( k 1 , L ) ≤ conf t ( k 2 , L ) . We write allm( k 1 , L ) ≤ allm( k 2 , L ) if allm( k 1 , L ) ≤ allm( k 2 , L ) and allm( k 2 , L ) ≤ allm( k 1 , L ) .
+
+Example 10 (An event log for the specification in Example 1 ). Let U act . = { c , r , v , t , n , y , $ , p , e , u } ∪ { @ } be an alphabet of activities. We interpret @ as an email exchange, which can occur at any stage during the process. The other activities in U act are those that were considered in the process specification in Example 1. Let the following event log be built on U act :
+
+Table 3. Measures computed for the relation constraints of Example 1 from the event log of Example 10.
+
+| Constraint                    | Event-based   | Event-based   | Trace-based   | Trace-based   |
+|-------------------------------|---------------|---------------|---------------|---------------|
+|                               | Confidence    | Support       | Confidence    | Support       |
+| Precedence ( c , r )          | 1             | 0.129         | 1             | 1             |
+| AlternatePrecedence ( r , v ) | 1             | 0.129         | 1             | 1             |
+| AlternateResponse ( r , v )   | 0.997         | 0.129         | 0.996         | 0.996         |
+| Precedence ( t , v )          | 0.997         | 0.129         | 0.996         | 0.996         |
+| AlternatePrecedence ( v , n ) | 1             | 0.059         | 1             | 0.461         |
+| AlternatePrecedence ( v , y ) | 1             | 0.084         | 1             | 0.856         |
+| NotResponse ( y , n )         | 1             | 0.084         | 1             | 0.856         |
+| Precedence ( y , p )          | 1             | 0.07          | 1             | 0.715         |
+| Precedence ( $ , p )          | 1             | 0.07          | 1             | 0.715         |
+| ChainResponse ( $ , p )       | 1             | 0.07          | 1             | 0.715         |
+| AtMostOne ( p )               | 1             | 1             | 1             | 1             |
+| Precedence ( p , e )          | 1             | 0.07          | 1             | 0.715         |
+| AtMostOne ( e )               | 1             | 1             | 1             | 1             |
+| Precedence ( u , e )          | 0.985         | 0.069         | 0.985         | 0.704         |
+
+<!-- formula-not-decoded -->
+
+We observe that the log above does not fully comply with the specification. Indeed, (i) trace t 8 violates AlternateResponse ( r , v ) , as the candidate managed to register twice before evaluation (notice the occurrence of two consecutive r 's before v ); (ii) t 7 violates Precedence ( t , v ) and Precedence ( u , e ) , as the candidate must have sent the admission test score and the necessary enrolment documents via email rather than via the system (see the occurrence of @ in place of t in the second instant and in place of u later in the trace); finally, (iii) trace t 6 violates Precedence ( u , e ) , as the candidate must have submitted the enrolment documents via email in that case too (notice the absence of task u and the presence of @ in its stance). /triangleleft
+
+Example 11. With the example above, we have that both the trace-based support and trace-based confidence of Alt.Prec. ( r , v ) , e.g., equate to 1.0: supp t ( Precedence ( c , r ) , L ) = conf t ( Precedence ( c , r ) , L ) = 1 . 0 . This is because in all traces the activator (i.e., r ) occurs and the constraint is not violated in any trace. Instead, supp t ( Alt.Prec. ( v , n ) , L ) = 100+80+80+2 568 /approxorequal 0 . 461
+
+and conf t ( Alt.Prec. ( v , n ) , L ) = 1 . 0 . The trace-based support is lower than the trace-based confidence because the activator ( n ) occurs in 262 traces out of 568 (i.e., in the 100 instances of t 2 , the 80 instances of t 4 , the 80 instances of t 5 , and the 2 instances of t 8 ). Similarly, conf e ( Precedence ( c , r ) , L ) = 1 . 0 and conf e ( Alt.Prec. ( v , n ) , L ) = 1 . 0 . The measures do not change for eventbased and trace-based confidence because every activation of the two constraints above leads to a satisfaction. In contrast, supp e ( Precedence ( c , r ) , L ) = 1 × 200+2 × 100+1 × 100+2 × 80+1 × 80+1 × 4+1 × 2+2 × 2 9 × 200+14 × 100+10 × 100+11 × 80+8 × 80+12 × 4+9 × 2+7 × 2 = 750 5800 /approxorequal 0 . 129 . /triangleleft
+
+It is worth noting that discovery approaches such as Declare Miner [58] and Janus [18] adopt (variations of) local constraint automata to count the satisfactions of constraints. MINERful [40] and DisCoveR [8] resort to occurrence statistics of activities gathered from the event log, more closely to the procedural discovery algorithms discussed in [2].
+
+By definition of confidence and support (trace- or event-based), and as exemplified above, we observe that trace-based confidence is an upper bound for trace-based support and event-based confidence is an upper bound for eventbased support. Next, we illustrate how the discovery algorithm operates with our running example.
+
+Example 12. Table 3 shows the event-based and trace-based measures computed on the basis of our running example for every constraint in the original specification -phase (2) of the discovery procedure described above. They belong to the output of the discovery algorithm running on the event log of Example 10 set at phase (1) to seek for (i) all templates from the Declare repertoire in Table 2 (ii) over activities { c , r , v , t , n , y , $ , p , e , u } , with (iii) minimum event-based confidence of 0 . 95 . We remark that also AlternatePrecedence ( y , p ) , ChainPrecedence ( $ , p ) , AlternatePrecedence ( p , e ) and AlternatePrecedence ( c , p ) , NotChainPrecedence ( y , p ) and NotChainResponse ( y , p ) , among others, fulfil those criteria and thus are part of the returned set. /triangleleft
+
+To increase the information brought by a discovered model, not only we prune the constraints whose measures lie below the given threshold values. Also, we take into account the subsumption hierarchy illustrated in Fig. 8. In addition, we retain in the constraint set only one among pairs that are a negated version of one another. If we kept both, the model would turn the activation in common into a dead activity (see Sect. 4.2).
+
+Example 13. Figure 9 illustrates the result of the pruning phase (3) based on subsumption and choice of constraints that are the negated version of one another, based on the event log of Example 10. We observe that AlternatePrecedence ( y , p ) has the same measures as Precedence ( y , p ) , and we know that Precedence ( y , p ) is subsumed by AlternatePrecedence ( y , p ) (see Sect. 4.2); as we are interested in more restrictive constraints that reduce the space of possible process runs to more closely define its behaviour, we retain the former and discard the latter. Keeping both would introduce a redundancy, and retaining only the latter would omit detailed information as not only p must be preceded by y , but also p cannot recur unless y occurs again. By the same line of reasoning, we prefer retaining Init ( c ) to AtMostOne ( c ) in the result specification. The same concepts apply with ChainPrecedence ( $ , p ) , to be preferred over Precedence ( $ , p ) and AlternatePrecedence ( p , e ) in place of Precedence ( p , e ) , among others. Notice that Precedence ( y , p ) , Precedence ( $ , p ) and Precedence ( p , e ) were in the given specification of our running example but, we conclude, are not the most restrictive constraints that could be used in the specification, as the discovery algorithm evidences. /triangleleft To conclude, we remark that not all redundancies can be found with the sole subsumption-hierarchy based pruning. The subsumption hierarchy, indeed, checks constraints that are exerted on the same activities -e.g., AlternatePrecedence ( y , p ) and Precedence ( y , p ) . Therefore, we need a more powerful redundancy checking mechanism, seeking for constraints that are entailed by the remainder of the specification's constraint set (see Sect. 4.2).
+
+Fig. 9. The subsumption map of relation Declare constraints in a discovery context. The graphical notation follows Fig. 8. Gray boxes denote constraints that have measures below the minimum thresholds. Light-gray boxes indicate constraints that are subsumed by others with equivalent measures.
+
+<!-- image -->
+
+Example 14. The confidence of AlternatePrecedence ( v , p ) is 1.0 in the event log of our running example. Yet, it does not add information to the discovered specification as it is redundant, logically entailed by the other constraints - in particular, AlternatePrecedence ( r , v ) , AlternatePrecedence ( v , y ) , Precedence ( y , p ) and AtMostOne ( p ) . /triangleleft
+
+To verify this, we can resort to language inclusion via automata product as in [38]: the language of the product of the four constraint automata is not smaller than the language accepted by the intersection of the second, third and fourth constraint automata. Here, we do not enter the details of the algorithms that detect redundancies at such a deeper level but provide an example of its rationale. The interested reader can find further details in [24,38].
+
+Fig. 10. Example FSAs adapted for the monitoring of constraints. Non-final states indicating current violation ( c ⊥ ) are dashed and filled in orange; non-final states indicating permanent violation ( p ⊥ ) are dotted and filled in red; final states indicating current satisfaction ( c /latticetop ) are thin-solid and filled in blue; final states indicating permanent satisfaction ( p /latticetop ) are thick-solid and filled in green. (Color figure online)
+
+<!-- image -->
+
+## 5.2 Declarative Process Monitoring
+
+(Compliance) process monitoring aims at tracking running process executions to check their conformance to a reference process model, with the purpose of detecting and reporting deviations as soon as possible [57]. It constitutes one of the main tasks of operational decision support [92, Ch. 10], which characterizes process mining applied at runtime to running process executions.
+
+Declarative process monitoring employs a declarative specification (in our case, described using Declare ) as reference model for monitoring. The central fact in monitoring that process instances are running, that is, their generated traces evolve over time, calls for a finer-grained understanding of the state of constraints and of the whole specification. We illustrate this intuitively in the next example.
+
+Example 15. Consider the excerpt in Fig. 11 of our admission process running example, and an evolving trace that, once completed, corresponds to the following sequence: 〈 $ , p , u , $ , p 〉 . Let us replay the trace from the beginning.
+
+1. At the beginning, all constraints are satisfied , but they are so for sure only currently , as events may occur making them violated. For example, a registration without a consequent evaluation would lead to violating AlternateResponse ( r , v ) , whereas an enrolment without a prior upload of certificates would lead to a violation of Precedence ( u , e ) .
+2. Upon the occurrence of $ , constraint ChainResponse ( $ , p ) becomes pending or, to be more precise, currently violated , as paying demands a pre-enrolment occurring immediately after.
+3. The execution of p brings ChainResponse ( $ , p ) back to currently satisfied , as it does not require the occurrence of further events, but may do so in the future in case of another payment.
+4. Upon the occurrence of u , constraint Precedence ( u , e ) becomes permanently satisfied , as enrolment is now enabled, and there is no way to continue the execution leading to a violation of the constraint.
+
+Fig. 11. Excerpt of the Declare specification in Fig. 2.
+
+<!-- image -->
+
+5. This is indeed what happens with the next occurrence of $ , which makes ChainResponse ( $ , p ) currently violated .
+6. The second pre-enrolment has the effect of bringing ChainResponse ( $ , p ) once again back to currently satisfied . However, it has also the effect of permanently violating AtMostOne ( p ) , as the number of occurrences of p has exceeded the upper bound allowed by AtMostOne ( p ) , and there is no way of fixing the violation.
+
+/triangleleft
+
+As witnessed by the example, the state of each constraint can be described in a fine-grained way by considering on the one hand the trace accumulated so far (i.e., the prefix of the whole, still unknown, execution), and by pondering on the other hand about the possible, future continuations. To do so in a formal way, we appeal to the literature on runtime-verification for linear temporal logics, and in particular to the RV -LTL semantics, originally introduced in [11] over infinite traces. This semantics was adopted for the first time in the context of LTL f over finite traces in [64,66], in order to define an operational technique for Declare monitoring. This led to deeper investigations on the usage of RV -LTL to characterize the relevance of a trace to a declarative specification [39], and to finally obtain a formally grounded, comprehensive framework for monitoring [27,28].
+
+We now define the RV -LTL semantics for LTL f . In the definition, we denote the concatenation of trace t 1 with t 2 as t 1 · t 2 .
+
+Definition 16 (RV-LTL states). Consider an LTL f formula ϕ over Σ , and a trace t over Σ ∗ . We say that ϕ is in (RV-LTL) state s after t , written [ t | = ϕ ] RV = v , if:
+
+- (Permanent satisfaction) (i) v = p /latticetop , (ii) the current trace satisfies ϕ ( t | = ϕ ), and (iii) every possible suffix keeps ϕ satisfied (for every trace t ′ ∈ Σ ∗ , we have t · t ′ | = ϕ ).
+- (Current satisfaction) (i) v = c /latticetop , (ii) the current trace satisfies ϕ ( t | = ϕ ), and (iii) there exists a suffix that leads to violate ϕ (for some trace t ′ ∈ Σ ∗ , we have t · t ′ /negationslash| = ϕ ).
+- (Permanent violation) (i) v = p ⊥ , (ii) the current trace violates ϕ ( t /negationslash| = ϕ ), and (iii) every possible suffix keeps ϕ violated (for every trace t ′ ∈ Σ ∗ , we have t · t ′ /negationslash| = ϕ ).
+
+(Current violation) (i) v = c ⊥ , (ii) the current trace violates ϕ ( t /negationslash| = ϕ ), and (iii) there exists a suffix that leads to satisfy ϕ (for some trace t ′ ∈ Σ ∗ , we have t · t ′ | = ϕ ).
+
+We also say that t conforms to ϕ if [ t | = ϕ ] RV = p /latticetop or [ t | = ϕ ] RV = c /latticetop (i.e., stopping the execution in t satisfies the formula). /triangleleft
+
+By inspecting the definition, we can directly see that monitoring is at least as hard as LTL f satisfiability/validity checking. To see this, consider what happens at the beginning of an execution , where the current trace is empty. By applying Definition 16 to this special case, and by recalling the notion of satisfiability/validity of an LTL f formula, we in fact get that an LTL f formula ϕ is:
+
+- permanently satisfied if ϕ is valid;
+- currently satisfied if the two formulae ϕ ∧ end and ¬ ϕ are both satisfiable;
+- permanently violated if ϕ is unsatisfiable;
+- currently violated if the two formulae ¬ ϕ ∧ end and ϕ are both satisfiable.
+
+To perform monitoring according to the RV-LTL states from Definition 16, we can once again exploit the automata-theoretic characterization of LTL f . In particular, given an LTL f formula ϕ , we construct its FSA A ϕ , and color the automaton states according to the RV -LTL semantics. As introduced in [64] and then formally verified in [28], this can be simply done as follows. Consider a state s in of A ϕ . We label it by:
+
+- p /latticetop , if s is final and all the states reachable from s in A ϕ are final as well; if A ϕ is minimized, this means that s only reaches itself.
+- p ⊥ , if s is non-final and all the states reachable from s in A ϕ are non-final as well; if A ϕ is minimized, this means that s only reaches itself.
+- c /latticetop , if s is final and can reach a non-final state in A ϕ .
+- c ⊥ , if s is non-final and can reach a final state in A ϕ .
+
+Figure 10 shows some examples of colored constraint automata, obtained by considering the constraint formulae of some Declare constraints from our running example. To monitor the state evolution of a constraint, one has simply to dynamically play the evolving trace on its colored local automaton, returning the updated RV -LTL label as soon as a new event is processed. Doing so on the local automata in Fig. 10 for trace 〈 $ , p , u , $ , p 〉 formally reconstructs what discussed in Example 15.
+
+However, this is not enough to promptly detect violations as soon as they manifest in the traces. This has been extensively discussed in [28,66], and is at the very core of the power of temporal logic-based techniques for monitoring. We use again Example 15 to illustrate the problem.
+
+Example 16. Consider Example 15 and the following question: is step 6 the earliest at which a violation can be detected? Clearly, if we focus on each constraint in isolation, the answer is affirmative. To see this formally, we play trace 〈 $ , p , u , $ , p 〉 on the four colored local automata of Fig. 10, obtaining the following runs:
+
+- For AlternateResponse ( r , v ) , we have s 0 $ - → s 0 p - → s 0 u - → s 0 $ - → s 0 p - → s 0 ; no violation is encountered.
+- For Precedence ( u , e ) , we have s 0 $ - → s 0 p - → s 0 u - → s 1 $ - → s 1 p - → s 1 ; no violation is encountered.
+- For ChainResponse ( $ , p ) , we have s 0 $ - → s 1 p - → s 0 u - → s 0 $ - → s 1 p - → s 0 ; no violation is encountered.
+- For AtMostOne ( p ) , we have s 0 $ - → s 0 p - → s 1 u - → s 1 $ - → s 1 p - → s 2 ; a violation is encountered in the last reached state.
+
+The answer changes if we consider the whole Declare specification that contains all such constraints at once. In fact, by taking into account the interplay of constraints, we can detect a violation already at step 5, i.e., after the second occurrence of payment. This is because, after that step, the two constraints ChainResponse ( $ , p ) and AtMostOne ( p ) enter into a conflict , that is, no continuation of the current trace can lead to satisfy them both. In fact, after trace 〈 $ , p , u , $ 〉 , constraint ChainResponse ( $ , p ) is currently violated, waiting for a consequent occurrence of p ; however, constraint AtMostOne ( p ) , which is currently satisfied, becomes permanently violated upon a further occurrence of p . /triangleleft
+
+As we have seen, the early detection of violations cannot always be caught by considering the colored local automata of constraints in isolation. However, it can be systematically detected by taking into account the colored global automaton of the whole specification.
+
+Example 17. Figure 12 shows the colored global automaton of the Declare specification in Fig. 11. By playing the trace 〈 $ , p , u , $ , p 〉 therein, we obtain the following run: s 0 $ - → s 1 p - → s 4 u - → s 8 $ - → s 12 p - → s 12 . Clearly, the violation state s 12 is already reached in step 5, i.e., just after the second payment. /triangleleft
+
+All in all, we can then monitor an evolving trace against a Declare specification as follows:
+
+- Each constraint is encoded into the corresponding colored local automaton, used to track the state evolution of the constraint itself.
+- The whole specification is encoded into the corresponding colored global automaon, used to track the evolution of the whole specification, and in particular to early-detect violations.
+- At runtime, every new event occurrence is delivered in parallel to all the automata, updating each of them by executing the corresponding transition and entering into the next state, at the same time returning the associated RV -LTL label.
+
+Figure 13 shows the result of applying this technique to our running example.
+
+An alternative approach, which is exploited in [64], is to compute, as done before, the global automaton as the cross-product of local automata, remembering, in each global state, the RV-LTL labels of all local states from which such a global state has been produced. In addition, no minimization step is applied on the resulting automaton. Once colored, this non-minimized, global colored automaton combines in a single device the contribution of all local monitors and that of the global monitor.
+
+Fig. 12. The colored global automaton automaton obtained as the (colored) crossproduct of constraints in Fig. 10 as shown in Fig. 6(c), the states of which are decorated with the four RV -LTL truth values.
+
+<!-- image -->
+
+## 5.3 A Note on Conformance Checking
+
+In this section, we have focused on monitoring evolving traces against Declare specifications. This can be seen as a form of online conformance checking , aiming at detecting deviations at execution time. This technique can be seamlessly lifted to handle the standard conformance checking task, where conformance is evaluated on an event log containing full traces of already completed process executions (cf. [16]). In this setting, the global automaton is not needed anymore, as a-posteriori it is not relevant to compute the earliest moment of a violation, but only to properly detect it at the trace level. The usage of local automata, one per constraint, is enough, and also has the advantage of producing an informative feedback that indicates, trace by trace, how many (and which) constraints are satisfied or violated. Finer-grained feedbacks like those based on the computation of trace alignments have been extensively applied for procedural models (cf. [16]), and can be also recasted in the declarative setting, aligning the log traces with the (closest) model traces accepted by the global automaton of the Declare specification of interest. This is an active line of research, which started from the seminal approach in [31].
+
+Fig. 13. Monitoring with local and global colored automata, showing a case where the global automaton detects a violation before it actually manifests on a single constraint.
+
+<!-- image -->
+
+## 6 Recent Advances and Outlook
+
+We close this chapter by reporting about the most recent advances in the field of declarative process mining revolving around Declare , describing the current frontier of research, and highlighting open challenges.
+
+## 6.1 Beyond D ECLARE Patterns
+
+As we have seen in Sect. 3, a Declare specification consists of a repertoire of constraint templates grounded on specific activities. At the same time, such templates come with a logic-based semantics given in terms of LTL f . A natural question is then: can the techniques described in this chapter be used for the entire LTL f logic? This means, more precisely, considering the situation where each constraint corresponds to an arbitrary LTL f formula while, as usual, the specification formula is constructed by putting in conjunction the LTL f formulae of all its constituting constraints.
+
+To answer this question, one has to separate the logical and pragmatic aspects involved in the different tasks we have been introducing. We do so focusing on reasoning, discovery, and monitoring.
+
+Reasoning. As discussed in Sect. 4.2, all the reasoning tasks we have considered in this chapter can be lifted to the whole LTL f logic. Indeed, they are reduced to LTL f satisfiability/validity checking, which in turn can be tackled by checking (non-)emptiness of FSAs. The situation may change if one wants to provide more advanced debugging or diagnosis functionalities - for example, to return the most relevant conflicting set(s) of constraints that are causing inconsistencies or dead activities. While these types of problem can also be attacked at the level of the entire logic [25,79], focusing only on pre-defined patterns becomes necessary if one wants to involve humans in the loop or define preferences over constraints in the case where multiple explanations exist [25]. Considering specific patterns is also relevant when studying the computational complexity of reasoning on pattern combinations [44,45,91], or the scalability and effectiveness of reasoning tools [44,45,71,97].
+
+Discovery. As pointed out in Sect. 5.1, two distinct process discovery problems are typically tackled in a declarative setting: discriminative discovery and specification mining.
+
+The case of discriminative discovery is tightly related to classification and machine learning, allowing one to rely on general learning algorithms for declarative process mining. Such algorithms tackle general logical frameworks, such as Horn clauses in inductive logic programming or full temporal logics in model learning, and can thus go far beyond a pre-defined set of templates, either targeting full LTL f [15,82] or enriching the discoverable Declare templates with further key dimensions, such as metric temporal constraints, event attributes, and data conditions [21,23].
+
+As shown in Sect. 5.1, standard discovery stands as a radically different problem, since the input event log provides a uniform set of (positive) examples, while no negative example is given. This calls for suitable metrics to measure how well a set of constraints characterizes the behaviour contained in the log. In the approach described in this chapter, such metrics are defined starting from the notions of constraint activation and target, which are template-specific. Attempts have been conducted to lift some of these notions (in particular that of activation and 'relevant' satisfaction [39]) to full LTL f , but further research is needed to target the discovery of arbitrary LTL f formulae from event logs. Notice that while full LTL f discovery would enrich the expressiveness of the discovered specifications, it would on the other hand pose the issue of understandability : end users may struggle when confronted with arbitrary temporal formulae, while they are facilitated when pre-defined templates are used.
+
+Monitoring. As we have discussed in Sect. 5.2, Declare monitoring is tackled using automata, and consequently seamlessly work for arbitrary LTL f formulae. As for advanced debugging techniques, the same considerations done for reasoning also hold for monitoring. For example, the detection of minimal conflicting sets of constraints in the case of early detection of violations caused by the interplay of multiple constraints can be tamed at the level of the full logic [66], but would require to focus on patterns if one wants to formulate preferences or incorporate human feedback [25].
+
+Remarkably, working with FSAs allows us to define monitors for temporal formulae that go even beyond LTL f . In fact, LTL f is as expressive as star-free regular expressions, while automata are able to capture full regular expressions and, in turn, finite-trace temporal logics incorporating in a single formalism LTL f and regular expressions, such as Linear Dynamic Logic over finite traces ( LDL f ) [30]. Working with LDL f in our setting has the specific advantage that we can express and monitor metaconstraints , that is, constraints that predicate on the RV -LTL truth values of other constraints [27,28].
+
+## 6.2 Dealing with Uncertainty
+
+In the conventional definition of a Declare specification, constraints are interpreted as being certain : every model trace is expected to satisfy all constraints contained in the specification. Such an interpretation is too restrictive in scenarios where the specification should accommodate:
+
+- constraints describing common behaviours, expected to hold in the majority, but not all cases;
+- constraints describing exceptional, outlier behaviours that rarely occurs but should be not judged as violating the specification.
+
+To deal with this form of uncertainty , Declare has been recently extended with probabilistic constraints [62]. In this framework, every probabilistic constraint comes with:
+
+- a constraint formula ϕ (specified, as in the standard case, using LTL f );
+- a number p ∈ [0 , 1] .
+- a comparison operator /circledot ∈ { = , = , &lt;, ≤ , &gt;, ≥} ;
+
+/negationslash
+
+The interpretation of this constraint is that ϕ holds in a random trace generated by the process with a probability that is /circledot p . In frequentist terms, this can be in turn interpreted as follows: given a log of the process, the ratio of traces satisfying ϕ must be /circledot p .
+
+Since a Declare specification contains multiple constraints, one has to consider how different probabilistic constraints interact with each other. In particular, n probabilistic constraints yield up to 2 n possible so-called scenarios , each highlighting which probabilistic constraints hold and which are violated. Reasoning over such scenarios has to be conducted by suitably mixing their temporal and probabilistic dimensions. The former handles which combinations of constraints and their violations (i.e., which scenarios) are consistent, while the latter lifts the probability conditions attached of single constraints to discrete probability distributions over the possible scenarios.
+
+To carry out this form of combined reasoning, probabilistic constraints are formalized in a well-behaved fragment of the logic introduced in [61]. As it turns out, logical and probabilistic reasoning are loosely coupled in this fragment, and can be carried out resorting to standard finite-state automata and systems of linear inequalities. This approach has been used as the basis for defining a new family of probabilistic declarative process mining techniques [6].
+
+## 6.3 Mixed-Paradigm Models
+
+In Fig. 1, we have intuitively contrasted declarative specifications and imperative models. The distinction of these two approaches is in reality not so crisp. In fact, a single process may contain parts that are more suitably captured using imperative languages, and parts that can be better described as declarative specifications. Take, for instance, a clinical guideline mixing administrative and therapeutic subprocesses [73].
+
+To capture such hybrid processes, one needs a multi-paradigm approach that can combine imperative and declarative constructs in a single process model. One of the first proposals doing so is [85], where an imperative process can contain activities that are internally structured using so-called pockets of flexibility specified using declarative temporal constraints over a given set of tasks.
+
+This layered approach has been further developed in [90], which brings forward a hierarchical model where each sub-process can be specified either as an imperative or declarative component. Discovery of hierarchical hybrid process models has been subsequently tackled in [87].
+
+Multi-paradigm approaches providing a tighter integration between imperative and declarative components have also been studied. In [33], process models combining Petri nets and Declare constraints at the same modelling level are introduced and studied, singling out methodologies and techniques to handle the intertwined state space emerging from their interaction. Conformance checking for these mixed-paradigm models is extensively assessed in [95]. A different approach is brought forward in [5], where a Declare specification is used to express global constraints that 'glue together' multiple imperative processes concurrently executed over the same instances. Automata-based techniques extending those illustrated in Sect. 5.2 are introduced to provide integrated monitoring functionalities dealing at once with the local processes and the global constraints.
+
+At the current stage, further research is needed along the illustrated lines towards a solid theory and corresponding algorithmic techniques for hybrid, mixed-paradigm process mining .
+
+## 6.4 Multi-perspective D ECLARE Specifications
+
+Throughout the chapter, we have considered pure control-flow specifications, where a process is captured solely in terms of its constitutive activities and of behavioural constraints separating legal from undesired executions. While the control-flow provides the main process backbone, other equally important perspectives should also be taken into account as suggested already in [1]:
+
+- The resource perspective deals with the actors that are responsible for executing tasks within the process.
+- The time perspective focusses on quantitative temporal conditions on when tasks can/must be scheduled and executed, and on their expected durations.
+- The data perspective captures how data objects and their attributes influence and are manipulated during the process execution.
+
+Several works have investigated the extension of Declare with additional perspectives. From the formal point of view, this requires to extend the logicbased formalization of Declare with features that can capture resources, metric time, data, and conditions thereof, in turn resorting to variants of metric and/or first-order formalisms over finite traces [10,14,69,74]. It is important to stress that such features may be blurred, considering that data support (if equipped with suitable datatypes and conditions) may be used to predicate over resources and time as well.
+
+Such multi-perspective features have been extensively embedded into Declare or related approaches (see, for example, [13,69,98] for constraints with metric time and [42] for constraints with metric time and resources). Next, we focus in more detail on the data dimension.
+
+When it comes to data, two main lines of research can be identified. The first one deals with standard 'case-centric' processes extended with event and case data. The second one focuses instead on 'multi-case' processes, wherein constraints are expressed over multiple objects and their mutual relations. We briefly discuss each line separately.
+
+Declarative Process Specifications with Event/Case Data. Within a process, activities may be equipped with data attributes that, at execution time, are grounded to actual data values by the involved resources. This means that events witnessing the occurrence of task instances come with a data payload. In addition, each process instance may evolve its own case data in response to the execution of activities. 3 Such case data may be stored in different ways, e.g., as key-value pairs or a full-fledged relational database. In this setting, it becomes crucial to extend Declare with so-called data-aware constraints , that is, constraints enriched with data-aware conditions over activities. The simple but illustrative example described next motivates why this is needed.
+
+Example 18. We focus on a process where payments are issued by customers through a pay activity, which comes with an attribute indicating the paid amount, in Euros. Two consequent activities check and emit are executed to respectively inspect a payment and emit a receipt.
+
+Let a log for this process contain multiple repetitions of the following traces:
+
+<!-- formula-not-decoded -->
+
+One may wonder whether Response ( pay , check ) is a suitable constraint to explain (part of) the behaviour contained in the log. If considered unrestrictedly, this is not the case, as there are many traces where payment is not followed by any inspection. The situation changes completely if one restricts the scope of the constraint activation only to those payments that involve an amount of 100 or more. /triangleleft A number of works has brought forward combined techniques to discover Declare constraints equipped with various forms of data conditions [54,60,86], to check conformance for data-aware constraints [12,13], and to handle their monitoring [5,69]. This passage has to be carried out with extreme care, as combining event data and time quickly leads to undecidability of reasoning [14, 34,35]. Therefore, such techniques have to operate in a limited fashion or suitably controlling the expressiveness of data conditions and the way they interact with time.
+
+3 For conciseness of presentation, we will not distinguish between event and case data in our discussion, but technically they pose different, albeit tightly related, requirements.
+
+Fig. 14. Comparison of conventional vs object-centric Declare .
+
+<!-- image -->
+
+Object-Centric Declarative Process Specifications. So far, we have discussed the extension of Declare with event or case data. In a more general setting, data may refer to more complex networks of objects and their mutual relations, simultaneously co-evolved by one or multiple processes. In this type of processes, known under the umbrella term of object-centric processes , there is no single, pre-defined notion of case, and process executions cannot consequently be represented as flat traces, but call for richer representations (cf. [43]). The following example illustrates why Declare , in its conventional version, cannot be used to capture object-centric processes.
+
+Example 19. Consider the fragment of an order-to-cash process, containing three activities: sign (indicating the signature of a GDPR form by the customer), open (the opening of an order), and close (the closing of an order). Two constraints apply to close , defining under which conditions it becomes executable:
+
+- An order can be closed only if that order has been opened before.
+- An order can be closed only if its owner has signed the consent before.
+
+Figure 14(a) shows how these two constraints can be captured in conventional Declare . This specification is satisfactory only in the case where each trace refers to a single customer and a single order by that customer. For example, consider the following two traces, respectively referring to an order o 1 by Anne, and an order o 2 by Bob:
+
+<!-- formula-not-decoded -->
+
+Clearly, t 1 is a model trace, while t 2 is not, as the latter violates Precedence ( sign , close ) .
+
+However, one may need to consider multiple orders owned by the same or distinct customers, in the common situation where distinct orders may be later bundled together to handle their shipment. In our example, assuming that o 1 and o 2 are later bundled together in a shipment, this would require to combine t 1 and t 2 in a single object-centric trace, suitably extending each event with a reference to the object(s) it operates on. Suppose this would result into:
+
+<!-- formula-not-decoded -->
+
+The Declare specification of Fig. 14(a) becomes now inadequate. In fact, it cannot distinguish which events actually co-refer to one another and which do not, so it cannot identify that the first signature by Anne refers to the first occurrence of close , but not to the second one. Hence, it wrongly uses the first occurrence of sign to satisfy Precedence ( sign , close ) for both orders. /triangleleft
+
+Fixing the issue described in Example 19 requires the explicitly extension of Declare with the ability of expressing how events relate to objects, how objects relate to each other, and in turn to scope the application of constraints, expressing that they must be enforced over events that suitably co-refer to each other - either because they operate on the same object, or because they operate on related objects. In our running example, this would call for the following actions:
+
+- introduce the classes of Order and Customer ;
+- capture that there is a many-to-one owned by association linking orders to customers;
+- indicate that sign refers to a customer, and that open and close refer to an order;
+- scope Precedence ( sign , close ) by enforcing that the two involved activities must respectively operate with a customer and an order that co-refer through the owned by association (i.e., that an event of activity close for order o can only occur if an event of activity sign has previously occurred for the customer who owns o ).
+- scope Precedence ( open , close ) by enforcing that the two involved activities must co-refer to the same order (i.e., that an event of activity close for order o can only occur if an event of activity open has previously occurred for the same order );
+
+Object-centric behavioral constraints (OCBC) [93] have been brought forward to handle this type of scoping through the integration of Declare specifications and UML class diagrams. Figure 14(b) shows the OCBC specification correctly capturing the constraints of Example 19. The approach is still at its infancy: some first seminal works have been conducted to handle discovery of OCBC specifications from object-centric event logs recording full database transactions [55], and to formalize and reason upon OCBC specifications through temporal description logics [7]. Further research is being carried out to improve the performance of discovery and frame it in the context of object-centric event logs of the form of [1], and to tackle conformance checking and monitoring. This is particularly challenging, as integrating temporal constraints with data models quickly leads to undecidability [7].
+
+## 7 Conclusion
+
+Throughout this chapter, we have thoroughly reviewed the declarative approach to process specification and mining. The declarative approach aims at limiting the process behavior by defining the boundaries within which its executions can unfold, yet leaving process executors free to explore at runtime which specific executions are generated. This is in contrast with the imperative approach, where process models compactly depict all and only those traces that are admissible. In fact, notice that different (imperative) process models can comply with the same declarative specification, just like different dynamic systems can model ( | = ) a set of temporal rules. In the chapter, we have grounded our discussion on the Declare language, but the introduced concepts are broad enough to be seamlessly applicable to other related approaches.
+
+Specifically, we have first discussed how declarative process specifications can be formalized using Linear Temporal Logic on Finite Traces ( LTL f ), and in turn operationally characterized in terms finite state automata (FSAs) for their execution semantics. On this solid formal ground, we have examined the core reasoning tasks that relate to declarative specifications and then delved deeper into the discovery and monitoring of processes according to the declarative paradigm. Interestingly, we have observed that the reasoning tasks are pervasive in all stages of declarative process mining, such as within discovery to avoid producing redundant or inconsistent outputs, and within monitoring to speculatively consider the possible future continuations of the monitored execution. In the last part of the chapter, we have provided a summary of the most recent advances in declarative process mining, focusing in particular on: (i) the applicability of declarative process mining techniques and concepts to full temporal logics, going beyond predefined patterns; (ii) the incorporation of uncertainty within constraints; (iii) the analysis of hybrid models integrating imperative and declarative fragments; (iv) multi-perspective constraints incorporating additional dimensions beyond the control-flow, and supporting the declarative specification of object-centric (multi-case) processes. This bird-eye view provides a fair account of the open research challenges in declarative process mining.
+
+Acknowledgments. The authors want to thank Fabrizio Maria Maggi, Wil van der Aalst, Alessio Cecconi, Federico Chesani, Giuseppe De Giacomo, Riccardo De Masellis, Johannes De Smedt, Massimo Mecella, Paola Mello, Jan Mendling, Maja Pesic, Johannes Prescher for the long-standing cooperation and years of joint work that led to this chapter. The work of the authors has received funding by the Italian Ministry of University and Research under the PRIN programme, grant B87G22000450001 (PINPOINT). The work of C. Di Ciccio was partly funded by the Italian Ministry of University and Research under grant 'Dipartimenti di eccellenza 2018-2022' of the Department of Computer Science at the Sapienza University of Rome and the Sapienza research project SPECTRA. The work of M. Montali was partly funded by the UNIBZ projects WineID, SMART-APP, QUEST, and VERBA.
+
+## References
+
+1. van der Aalst, W.M.P.: Process mining: a 360 degrees overview. In: van der Aalst, W.M.P., Carmona, J. (eds.) Process Mining Handbook. LNBIP, vol. 448, pp. xx-yy. Springer, Cham (2022)
+2. van der Aalst, W.M.P.: Foundations of process discovery. In: van der Aalst, W.M.P., Carmona, J. (eds.) Process Mining Handbook. LNBIP, vol. 448, pp. xx-yy. Springer, Cham (2022)
+3. Adamo, J.-M.: Data Mining for Association Rules and Sequential Patterns -Sequential and Parallel Algorithms. Springer, New York (2001). https://doi.org/ 10.1007/978-1-4613-0085-4
+4. Alman, A., Di Ciccio, C., Maggi, F.M., Montali, M., van der Aa, H.: RuM: declarative process mining, distilled. In: Polyvyanyy, A., Wynn, M.T., Van Looy, A., Reichert, M. (eds.) BPM 2021. LNCS, vol. 12875, pp. 23-29. Springer, Cham (2021). https://doi.org/10.1007/978-3-030-85469-0\_3
+5. Alman, A., Maggi, F.M., Montali, M., Patrizi, F., Rivkin, A.: Multi-model monitoring framework for hybrid process specifications. In: Franch, X., Poels, G. (eds.) Proceedings of the 34th International Conference on Advanced Information Systems Engineering (CAiSE 2022). Lecture Notes in Computer Science (2022, to appear)
+6. Alman, A., Maggi, F.M., Montali, M., Peñaloza, R.: Probabilistic declarative process mining. Inf. Syst. (2012, to appear)
+7. Artale, A., Kovtunova, A., Montali, M., van der Aalst, W.M.P.: Modeling and reasoning over declarative data-aware processes with object-centric behavioral constraints. In: Hildebrandt, T., van Dongen, B.F., Röglinger, M., Mendling, J. (eds.) BPM 2019. LNCS, vol. 11675, pp. 139-156. Springer, Cham (2019). https://doi. org/10.1007/978-3-030-26619-6\_11
+8. Back, C.O., Slaats, T., Hildebrandt, T.T., Marquard, M.: Discover: Accurate &amp; efficient discovery of declarative process models. CoRR, abs/2005.10085 (2020)
+9. Baier, T., Di Ciccio, C., Mendling, J., Weske, M.: Matching events and activities by integrating behavioral aspects and label analysis. Softw. Syst. Model. 17 (2), 573-598 (2018)
+10. Basin, D.A., Klaedtke, F., Müller, S., Zalinescu, E.: Monitoring metric first-order temporal properties. J. ACM 62 (2), 15:1-15:45 (2015)
+11. Bauer, A., Leucker, M., Schallhart, C.: Runtime verification for LTL and TLTL. ACM Trans. Softw. Eng. Methodol. 20 (4), 14:1-14:64 (2011)
+
+12. Bergami, G., Maggi, F.M., Marrella, A., Montali, M.: Aligning data-aware declarative process models and event logs. In: Polyvyanyy, A., Wynn, M.T., Van Looy, A., Reichert, M. (eds.) BPM 2021. LNCS, vol. 12875, pp. 235-251. Springer, Cham (2021). https://doi.org/10.1007/978-3-030-85469-0\_16
+13. Burattin, A., Maggi, F.M., Sperduti, A.: Conformance checking based on multiperspective declarative process models. Expert Syst. Appl. 65 , 194-211 (2016)
+14. Calvanese, D., De Giacomo, G., Montali, M., Patrizi, F.: Verification and monitoring for first-order LTL with persistence-preserving quantification over finite and infinite traces. In: De Raedt, L. (ed.) Proceedings of the 31st International Joint Conference on Artificial Intelligence (IJCAI 2022). ijcai.org (2022, to appear)
+15. Camacho, A., McIlraith, S.A.: Learning interpretable models expressed in linear temporal logic. In: Benton, J., Lipovetzky, N., Onaindia, E., Smith, D.E., Srivastava, S. (eds.) Proceedings of the Twenty-Ninth International Conference on Automated Planning and Scheduling (ICAPS 2018), pp. 621-630. AAAI Press (2019)
+16. Carmona, J., van Dongen, B., Weidlich, M.: Conformance checking: foundations, milestones and challenges. In: van der Aalst, W.M.P., Carmona, J. (eds.) Process Mining Handbook. LNBIP, vol. 448, pp. xx-yy. Springer, Cham (2022)
+17. Cecconi, A., De Giacomo, G., Di Ciccio, C., Mendling, J.: A temporal logic-based measurement framework for process mining. In: van Dongen et al. [92]
+18. Cecconi, A., Di Ciccio, C., De Giacomo, G., Mendling, J.: Interestingness of traces in declarative process mining: the janus LTLp f approach. In: Weske, M., Montali, M., Weber, I., vom Brocke, J. (eds.) BPM 2018. LNCS, vol. 11080, pp. 121-138. Springer, Cham (2018). https://doi.org/10.1007/978-3-319-98648-7\_8
+19. Chesani, F., et al.: Process discovery on deviant traces and other stranger things. CoRR, abs/2109.14883 (2021)
+20. Chesani, F., Lamma, E., Mello, P., Montali, M., Riguzzi, F., Storari, S.: Exploiting inductive logic programming techniques for declarative process mining. In: Jensen, K., van der Aalst, W.M.P. (eds.) Transactions on Petri Nets and Other Models of Concurrency II. LNCS, vol. 5460, pp. 278-295. Springer, Heidelberg (2009). https://doi.org/10.1007/978-3-642-00899-3\_16
+21. Chesani, F., Lamma, E., Mello, P., Montali, M., Riguzzi, F., Storari, S.: Exploiting inductive logic programming techniques for declarative process mining. Trans. Petri Nets Other Model. Concurr. 2 , 278-295 (2009)
+22. Chomsky, N., Miller, G.A.: Finite state languages. Inf. Control 1 (2), 91-112 (1958)
+23. Corea, C., Deisen, M., Delfmann, P.: Resolving inconsistencies in declarative process models based on culpability measurement. In: Ludwig, T., Pipek, V. (eds.) WI, pp. 139-153. University of Siegen, Germany/AISeL (2019)
+24. Corea, C., Delfmann, P.: Quasi-inconsistency in declarative process models. In: Hildebrandt, T., van Dongen, B.F., Röglinger, M., Mendling, J. (eds.) BPM 2019. LNBIP, vol. 360, pp. 20-35. Springer, Cham (2019). https://doi.org/10.1007/9783-030-26643-1\_2
+25. Corea, C., Nagel, S., Mendling, J., Delfmann, P.: Interactive and minimal repair of declarative process models. In: Polyvyanyy, A., Wynn, M.T., Van Looy, A., Reichert, M. (eds.) BPM 2021. LNBIP, vol. 427, pp. 3-19. Springer, Cham (2021). https://doi.org/10.1007/978-3-030-85440-9\_1
+26. Davulcu, H., Kifer, M., Ramakrishnan, C.R., Ramakrishnan, I.V.: Logic based modeling and analysis of workflows. In: PODS, pp. 25-33. ACM (1998)
+27. De Giacomo, G., De Masellis, R., Grasso, M., Maggi, F.M., Montali, M.: Monitoring business metaconstraints based on LTL and LDL for finite traces. In: Sadiq, S.,
+
+- Soffer, P., Völzer, H. (eds.) BPM 2014. LNCS, vol. 8659, pp. 1-17. Springer, Cham (2014). https://doi.org/10.1007/978-3-319-10172-9\_1
+28. De Giacomo, G., De Masellis, R., Maggi, F.M., Montali, M.: Monitoring constraints and metaconstraints with temporal logics on finite traces. ACM Trans. Softw. Eng. Methodol. (2022, to appear)
+29. De Giacomo, G., De Masellis, R., Montali, M.: Reasoning on LTL on finite traces: insensitivity to infiniteness. In: Brodley, C.E., Stone, P. (eds.) AAAI, pp. 10271033. AAAI Press (2014)
+30. De Giacomo, G., Vardi, M.Y.: Linear temporal logic and linear dynamic logic on finite traces. In: Rossi, F. (ed.) IJCAI, pp. 854-860. IJCAI/AAAI (2013)
+31. De Leoni, M., Maggi, F.M., van der Aalst, W.M.: An alignment-based framework to check the conformance of declarative process models and to preprocess event-log data. Inf. Syst. 47 , 258-277 (2015)
+32. De Smedt, J., De Weerdt, J., Serral, E., Vanthienen, J.: Discovering hidden dependencies in constraint-based declarative process models for improving understandability. Inf. Syst. 74 (Part 1), 40-52 (2018)
+33. De Smedt, J., De Weerdt, J., Vanthienen, J., Poels, G.: Mixed-paradigm process modeling with intertwined state spaces. Bus. Inf. Syst. Eng. 58 (1), 19-29 (2016)
+34. Demri, S., Lazic, R.: LTL with the freeze quantifier and register automata. ACM Trans. Comput. Log. 10 (3), 16:1-16:30 (2009)
+35. Demri, S., Lazic, R., Nowak, D.: On the freeze quantifier in constraint LTL: decidability and complexity. Inf. Comput. 205 (1), 2-24 (2007)
+36. Di Ciccio, C.: On the mining of artful processes. Ph.D. thesis, SAPIENZA, University of Rome, October 2013
+37. Di Ciccio, C., Bernardi, M.L., Cimitile, M., Maggi, F.M.: Generating event logs through the simulation of declare models. In: Barjis, J., Pergl, R., Babkin, E. (eds.) EOMAS 2015. LNBIP, vol. 231, pp. 20-36. Springer, Cham (2015). https:// doi.org/10.1007/978-3-319-24626-0\_2
+38. Di Ciccio, C., Maggi, F.M., Montali, M., Mendling, J.: Resolving inconsistencies and redundancies in declarative process models. Inf. Syst. 64 , 425-446 (2017)
+39. Di Ciccio, C., Maggi, F.M., Montali, M., Mendling, J.: On the relevance of a business constraint to an event log. Inf. Syst. 78 , 144-161 (2018)
+40. Di Ciccio, C., Mecella, M.: On the discovery of declarative control flows for artful processes. ACM Trans. Manag. Inf. Syst. 5 (4), 24:1-24:37 (2015)
+41. Dwyer, M.B., Avrunin, G.S., Corbett, J.C.: Patterns in property specifications for finite-state verification. In: Boehm, B.W., Garlan, D., Kramer, J. (eds.) ICSE, pp. 411-420. ACM (1999)
+42. Elgammal, A., Turetken, O., van den Heuvel, W.-J., Papazoglou, M.: Formalizing and appling compliance patterns for business process compliance. Softw. Syst. Model. 15 (1), 119-146 (2014). https://doi.org/10.1007/s10270-014-0395-3
+43. Fahland, D.: Process mining over multiple behavioral dimensions with event knowledge graphs. In: van der Aalst, W.M.P., Carmona, J. (eds.) Process Mining Handbook. LNBIP, vol. 448, pp. xx-yy. Springer, Cham (2022)
+44. Fionda, V., Greco, V.: LTL on finite and process traces: complexity results and a practical reasoner. J. Artif. Intell. Res. 63 , 557-623 (2018)
+45. Fionda, V., Guzzo, A.: Control-flow modeling with declare: behavioral properties, computational complexity, and tools. IEEE Trans. Knowl. Data Eng. 32 (5), 98-911 (2020)
+46. Goedertier, S., Martens, D., Vanthienen, J., Baesens, B.: Robust process discovery with artificial negative events. J. Mach. Learn. Res. 10 , 1305-1340 (2009)
+
+47. Green, T.R.G., Petre, M.: Usability analysis of visual programming environments: a 'cognitive dimensions' framework. Vis. Comp. and Lang. 7 (2), 131-74 (1996)
+48. Haisjackl, C., et al.: Understanding declare models: strategies, pitfalls, empirical results. Softw. Syst. Model. 15 (2), 325-352 (2016)
+49. Hildebrandt, T.T., Mukkamala, R.R.: Declarative event-based workflow as distributed dynamic condition response graphs. In: PLACES. EPTCS, vol. 69, pp. 59-73 (2010)
+50. Hopcroft, J.E., Motwani, R., Ullman, J.D.: Introduction to Automata Theory, Languages, and Computation, 3rd edn. Addison-Wesley Longman Publishing Co. Inc., Boston (2006)
+51. Kupferman, O., Vardi, M.Y.: Vacuity detection in temporal model checking. Int. J. Softw. Tools Technol. Transfer 4 (2), 224-233 (2003)
+52. Lamma, E., Mello, P., Montali, M., Riguzzi, F., Storari, S.: Inducing declarative logic-based models from labeled traces. In: Alonso, G., Dadam, P., Rosemann, M. (eds.) BPM 2007. LNCS, vol. 4714, pp. 344-359. Springer, Heidelberg (2007). https://doi.org/10.1007/978-3-540-75183-0\_25
+53. Lemieux, C., Park, D., Beschastnikh, I.: General LTL specification mining (T). In: Cohen, M.B., Grunske, L., Whalen, M. (eds.) 30th IEEE/ACM International Conference on Automated Software Engineering, ASE 2015, Lincoln, NE, USA, 9-13 November 2015, pp. 81-92. IEEE Computer Society (2015)
+54. Leno, V., Dumas, M., Maggi, F.M., La Rosa, M., Polyvyanyy, A.: Automated discovery of declarative process models with correlated data conditions. Inf. Syst. 89 , 101482 (2020)
+55. Li, G., de Carvalho, R.M., van der Aalst, W.M.P.: Automatic discovery of objectcentric behavioral constraint models. In: Abramowicz, W. (ed.) BIS 2017. LNBIP, vol. 288, pp. 43-58. Springer, Cham (2017). https://doi.org/10.1007/978-3-31959336-4\_4
+56. Lichtenstein, O., Pnueli, A., Zuck, L.: The glory of the past. In: Parikh, R. (ed.) Logic of Programs 1985. LNCS, vol. 193, pp. 196-218. Springer, Heidelberg (1985). https://doi.org/10.1007/3-540-15648-8\_16
+57. Ly, L.T., Maggi, F.M., Montali, M., Rinderle-Ma, S., van der Aalst, W.M.P.: Compliance monitoring in business processes: functionalities, application, and toolsupport. Inf. Syst. 54 , 209-234 (2015)
+58. Maggi, F.M., Bose, R.P.J.C., van der Aalst, W.M.P.: Efficient discovery of understandable declarative process models from event logs. In: Ralyté, J., Franch, X., Brinkkemper, S., Wrycza, S. (eds.) CAiSE 2012. LNCS, vol. 7328, pp. 270-285. Springer, Heidelberg (2012). https://doi.org/10.1007/978-3-642-31095-9\_18
+59. Maggi, F.M., Di Ciccio, C., Di Francescomarino, C., Kala, T.: Parallel algorithms for the automated discovery of declarative process models. Inf. Syst. 74 , 136-152 (2018)
+60. Maggi, F.M., Dumas, M., García-Bañuelos, L., Montali, M.: Discovering dataaware declarative process models from event logs. In: Daniel, F., Wang, J., Weber, B. (eds.) BPM 2013. LNCS, vol. 8094, pp. 81-96. Springer, Heidelberg (2013). https://doi.org/10.1007/978-3-642-40176-3\_8
+61. Maggi, F.M., Montali, M., Peñaloza, R.: Temporal logics over finite traces with uncertainty. In: Proceedings of the 34 AAAI Conference on Artificial Intelligence (AAAI 2020), pp. 10218-10225. AAAI Press (2020)
+62. Maggi, F.M., Montali, M., Peñaloza, R., Alman, A.: Extending temporal business constraints with uncertainty. In: Fahland, D., Ghidini, C., Becker, J., Dumas, M. (eds.) BPM 2020. LNCS, vol. 12168, pp. 35-54. Springer, Cham (2020). https:// doi.org/10.1007/978-3-030-58666-9\_3
+
+63. Maggi, F.M., Montali, M., van der Aalst, W.M.P.: An operational decision support framework for monitoring business constraints. In: de Lara, J., Zisman, A. (eds.) FASE 2012. LNCS, vol. 7212, pp. 146-162. Springer, Heidelberg (2012). https:// doi.org/10.1007/978-3-642-28872-2\_11
+64. Maggi, F.M., Montali, M., Westergaard, M., van der Aalst, W.M.P.: Monitoring business constraints with linear temporal logic: an approach based on colored automata. In: Rinderle-Ma et al. [81], pp. 132-147
+65. Maggi, F.M., Mooij, A.J., van der Aalst, W.M.P.: User-guided discovery of declarative process models. In: CIDM, pp. 192-199. IEEE (2011)
+66. Maggi, F.M., Westergaard, M., Montali, M., van der Aalst, W.M.P.: Runtime verification of LTL-based declarative process models. In: Khurshid, S., Sen, K. (eds.) RV 2011. LNCS, vol. 7186, pp. 131-146. Springer, Heidelberg (2012). https://doi. org/10.1007/978-3-642-29860-8\_11
+67. Montali, M.: Specification and verification of declarative open interaction models - a logic-based framework. Ph.D. thesis, University of Bologna, Italy (2009)
+68. Montali, M.: Specification and Verification of Declarative Open Interaction Models: a Logic-Based Approach. Lecture Notes in Business Information Processing, vol. 56. Springer, Heidelberg (2010). https://doi.org/10.1007/978-3-642-14538-4
+69. Montali, M., Maggi, F.M., Chesani, F., Mello, P., van der Aalst, W.M.P.: Monitoring business constraints with the event calculus. ACM TIST 5 (1), 17:1-17:30 (2013)
+70. Montali, M., Pesic, M., van der Aalst, W.M.P., Chesani, F., Mello, P., Storari, S.: Declarative specification and verification of service choreographies. TWEB 4 (1), 1-62 (2010)
+71. Montali, M., et al.: Verification from declarative specifications using logic programming. In: Garcia de la Banda, M., Pontelli, E. (eds.) ICLP 2008. LNCS, vol. 5366, pp. 440-454. Springer, Heidelberg (2008). https://doi.org/10.1007/9783-540-89982-2\_39
+72. Mulyar, N., Pesic, M., van der Aalst, W.M.P., Peleg, M.: Declarative and procedural approaches for modelling clinical guidelines: addressing flexibility issues. In: ter Hofstede, A., Benatallah, B., Paik, H.-Y. (eds.) BPM 2007. LNCS, vol. 4928, pp. 335-346. Springer, Heidelberg (2008). https://doi.org/10.1007/978-3-540-78238-4\_35
+73. Munoz-Gama, J., Martin, N., et al.: Process mining for healthcare: characteristics and challenges. J. Biomed. Inform. 127 , 103994 (2022)
+74. Ouaknine, J., Worrell, J.: On the decidability and complexity of metric temporal logic over finite words. Log. Methods Comput. Sci. 3 (1) (2007)
+75. Pesic, M.: Constraint-based workflow management systems: shifting control to users. Ph.D. thesis, Technische Universiteit Eindhoven (2008)
+76. Pesic, M., Schonenberg, H., van der Aalst, W.M.P.: DECLARE: full support for loosely-structured processes. In: EDOC, pp. 287-300 (2007)
+77. Pesic, M., Schonenberg, H., van der Aalst, W.M.P.: DECLARE: full support for loosely-structured processes. In: EDOC, pp. 287-300. IEEE Computer Society (2007)
+78. Pesic, M., van der Aalst, W.M.P.: A declarative approach for flexible business processes management. In: Eder, J., Dustdar, S. (eds.) BPM 2006. LNCS, vol. 4103, pp. 169-180. Springer, Heidelberg (2006). https://doi.org/10.1007/11837862\_18
+79. Pill, I., Quaritsch, T.: Behavioral diagnosis of LTL specifications at operator level. In: Rossi, F. (ed.) Proceedings of the 23rd International Joint Conference on Artificial Intelligence (IJCAI 2013), pp. 1053-1059. IJCAI/AAAI (2013)
+
+80. Pnueli, A.: The temporal logic of programs. In: FOCS, pp. 46-57. IEEE (1977)
+81. Rabin, M.O., Scott, D.S.: Finite automata and their decision problems. IBM J. Res. Dev. 3 (2), 114-125 (1959)
+82. Raha, R., Roy, R., Fijalkow, N., Neider, D.: Scalable anytime algorithms for learning fragments of linear temporal logic. In: Fisman, D., Rosu, G. (eds.) TACAS 2022. LNCS, vol. 13243, pp. 263-280. Springer, Cham (2022). https://doi.org/10. 1007/978-3-030-99524-9\_14
+83. Reichert, M., Weber, B.: Enabling Flexibility in Process-Aware Information Systems - Challenges, Methods, Technologies. Springer, Heidelberg (2012). https:// doi.org/10.1007/978-3-642-30409-5
+84. Rinderle-Ma, S., Toumani, F., Wolf, K. (eds.): Business Process Management. LNCS, vol. 6896. Springer, Heidelberg (2011). https://doi.org/10.1007/978-3-64223059-2
+85. Sadiq, S., Sadiq, W., Orlowska, M.: Pockets of flexibility in workflow specification. In: S.Kunii, H., Jajodia, S., Sølvberg, A. (eds.) ER 2001. LNCS, vol. 2224, pp. 513-526. Springer, Heidelberg (2001). https://doi.org/10.1007/3-540-45581-7\_38
+86. Schönig, S., Di Ciccio, C., Maggi, F.M., Mendling, J.: Discovery of multiperspective declarative process models. In: Sheng, Q.Z., Stroulia, E., Tata, S., Bhiri, S. (eds.) ICSOC 2016. LNCS, vol. 9936, pp. 87-103. Springer, Cham (2016). https://doi.org/10.1007/978-3-319-46295-0\_6
+87. Schunselaar, D.M.M., Slaats, T., Maggi, F.M., Reijers, H.A., van der Aalst, W.M.P.: Mining hybrid business process models: a quest for better precision. In: Abramowicz, W., Paschke, A. (eds.) BIS 2018. LNBIP, vol. 320, pp. 190-205. Springer, Cham (2018). https://doi.org/10.1007/978-3-319-93931-5\_14
+88. Singh, M.P.: Distributed enactment of multiagent workflows: temporal logic for web service composition. In: AAMAS, pp. 907-914. ACM (2003)
+89. Slaats, T., Debois, S., Back, C.O.: Weighing the pros and cons: process discovery with negative examples. In: Polyvyanyy, A., Wynn, M.T., Van Looy, A., Reichert, M. (eds.) BPM 2021. LNCS, vol. 12875, pp. 47-64. Springer, Cham (2021). https:// doi.org/10.1007/978-3-030-85469-0\_6
+90. Slaats, T., Schunselaar, D.M.M., Maggi, F.M., Reijers, H.A.: The semantics of hybrid process models. In: Debruyne, C., et al. (eds.) OTM 2016. LNCS, vol. 10033, pp. 531-551. Springer, Cham (2016). https://doi.org/10.1007/978-3-31948472-3\_32
+91. Sun, Y., Su, J.: Conformance for DecSerFlow constraints. In: Franch, X., Ghose, A.K., Lewis, G.A., Bhiri, S. (eds.) ICSOC 2014. LNCS, vol. 8831, pp. 139-153. Springer, Heidelberg (2014). https://doi.org/10.1007/978-3-662-45391-9\_10
+92. van der Aalst, W.M.P.: Process Mining - Data Science in Action, 2nd edn. Springer, Heidelberg (2016). https://doi.org/10.1007/978-3-662-49851-4
+93. van der Aalst, W.M.P., Artale, A., Montali, M., Tritini, S.: Object-centric behavioral constraints: integrating data and declarative process modelling. In: Artale, A., Glimm, B., Kontchakov, R. (eds.) DL. CEUR Workshop Proceedings, vol. 1879. CEUR-WS.org (2017)
+94. van der Aalst, W.M.P., Pesic, M.: DecSerFlow: towards a truly declarative service flow language. In: Bravetti, M., Núñez, M., Zavattaro, G. (eds.) WS-FM 2006. LNCS, vol. 4184, pp. 1-23. Springer, Heidelberg (2006). https://doi.org/10.1007/ 11841197\_1
+95. van Dongen, B.F., De Smedt, J., Di Ciccio, C., Mendling, J.: Conformance checking of mixed-paradigm process models. Inf. Syst. 102 , 101685 (2021)
+96. van Dongen, B.F., Montali, M., Wynn, M.T. (eds.) 2nd International Conference on Process Mining, ICPM 2020, Padua, Italy, 4-9 October 2020. IEEE (2020)
+
+97. Westergaard, M.: Better algorithms for analyzing and enacting declarative workflow languages using LTL. In: Rinderle-Ma et al. [81], pp. 83-98
+98. Westergaard, M., Maggi, F.M.: Looking into the future. In: Meersman, R., et al. (eds.) OTM 2012. LNCS, vol. 7565, pp. 250-267. Springer, Heidelberg (2012). https://doi.org/10.1007/978-3-642-33606-5\_16
+99. Zhu, S., Tabajara, L.M., Pu, G., Vardi, M.Y.: On the power of automata minimization in temporal synthesis. In: Proceedings 12th International Symposium on Games, Automata, Logics, and Formal Verification (GandALF 2021). EPTCS, vol. 346, pp. 117-134 (2021)
+
+Open Access This chapter is licensed under the terms of the Creative Commons Attribution 4.0 International License (http://creativecommons.org/licenses/by/4.0/), which permits use, sharing, adaptation, distribution and reproduction in any medium or format, as long as you give appropriate credit to the original author(s) and the source, provide a link to the Creative Commons license and indicate if changes were made.
+
+The images or other third party material in this chapter are included in the chapter's Creative Commons license, unless indicated otherwise in a credit line to the material. If material is not included in the chapter's Creative Commons license and your intended use is not permitted by statutory regulation or exceeds the permitted use, you will need to obtain permission directly from the copyright holder.
+
+<!-- image -->

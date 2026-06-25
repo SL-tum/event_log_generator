@@ -1,0 +1,22 @@
+1. User intent:
+{intent}
+
+2. Retrieved knowledge:
+{knowledge}
+
+3. User requirements:
+{requirements_table}
+
+4. Event Log generation related data:
+{data_table}
+
+5. User Preference:
+{perference_table}
+
+6. Chat Model behavior constraints:
+{constrain_table}
+
+7. Historical messages:
+{history}
+
+Take the User intent, User requirements, Event log generation related data and Historical messages as important information sources. Now decide whether clarification is required before continuing event log generation.

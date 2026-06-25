@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+
+# OS/editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Runtime state
+history.db
+event_log/run_*/
+data_output.csv
+graph_rag/data_output.csv
+
+# GraphRAG generated state
+graph_rag/cache/
+graph_rag/logs/
+graph_rag/update_output/
+graph_rag/output/lancedb/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
