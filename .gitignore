@@ -12,7 +12,10 @@ venv/
 .env
 .env.*
 !.env.example
-data/models/
+
+# Local/private process models
+data/models/*
+!data/models/.gitkeep
 
 # OS/editor files
 .DS_Store

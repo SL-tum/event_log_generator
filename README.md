@@ -22,7 +22,7 @@ This project is a command-line framework for generating synthetic process-mining
 ├── .env.example            # Local environment template
 ├── data/
 │   ├── input/              # Optional user-provided BPMN input
-│   └── models/             # Sample BPMN/text process models
+│   └── models/             # Local/private process models ignored by git
 ├── event_log/              # Generated run folders are written here
 ├── generation/             # Prompt construction and generation loop
 ├── intent_detection/       # Intent detection logic
@@ -35,8 +35,6 @@ This project is a command-line framework for generating synthetic process-mining
 │   └── settings.yaml       # GraphRAG configuration
 └── prompt/                 # Main framework prompt templates
 ```
-
-There are no test datasets, notebooks, or historical run archives in the cleaned project. Runtime files such as `history.db`, `event_log/run_*`, GraphRAG caches, logs, and local `.env` files are ignored by git.
 
 ## Requirements
 
